@@ -22,6 +22,10 @@ typedef struct {
     ngx_uint_t version;
     ngx_nacos_service_addrs_t addrs;
     ngx_http_upstream_srv_conf_t *us;
+} ngx_http_nacos_peers_t;
+
+typedef struct {
+    ngx_http_nacos_peers_t *peers;
     // origin
     void *original_data;
     ngx_event_get_peer_pt original_get_peer;
@@ -30,7 +34,7 @@ typedef struct {
     ngx_event_set_peer_session_pt original_set_session;
     ngx_event_save_peer_session_pt original_save_session;
 #endif
-} ngx_http_nacos_peers_t;
+} ngx_http_nacos_rrp_t;
 
 static void *ngx_http_nacos_create_srv_conf(ngx_conf_t *cf);
 
@@ -236,7 +240,6 @@ static ngx_int_t ngx_http_nacos_add_server(ngx_http_nacos_peers_t *peers) {
         server->weight = adr[i].weight;
         server->down = 0;
         server->backup = 0;
-        server->max_conns = 150;
         server->fail_timeout = 15000;
     }
     return NGX_OK;
@@ -290,6 +293,7 @@ static ngx_int_t ngx_http_nacos_init_upstream(
     if (peers->addrs.addrs.nelts > 0) {
         new_cf = *cf;
         new_cf.pool = pool;
+        new_cf.log = pool->log;
         if (ncf->original_init_upstream(&new_cf, peers->us) != NGX_OK) {
             ngx_destroy_pool(pool);
             return NGX_ERROR;
@@ -322,7 +326,18 @@ static ngx_int_t ngx_http_nacos_create_new_us(
 static ngx_int_t ngx_http_nacos_init_peers(ngx_http_request_t *r,
                                            ngx_http_upstream_srv_conf_t *us) {
     ngx_http_nacos_peers_t *peers;
+    ngx_http_nacos_rrp_t *rrp;
     ngx_int_t rc;
+
+    rrp = r->upstream->peer.data;
+    if (rrp == NULL) {
+        rrp = ngx_palloc(r->pool, sizeof(*rrp));
+        if (rrp == NULL) {
+            return NGX_ERROR;
+        }
+    } else {
+        r->upstream->peer.data = NULL;
+    }
 
     peers = ngx_http_get_nacos_peers(r, us);
     if (peers == NULL || peers->addrs.addrs.nelts == 0) {
@@ -333,16 +348,17 @@ static ngx_int_t ngx_http_nacos_init_peers(ngx_http_request_t *r,
         return rc;
     }
 
-    peers->original_data = r->upstream->peer.data;
-    peers->original_get_peer = r->upstream->peer.get;
-    peers->original_free_peer = r->upstream->peer.free;
+    rrp->peers = peers;
+    rrp->original_data = r->upstream->peer.data;
+    rrp->original_get_peer = r->upstream->peer.get;
+    rrp->original_free_peer = r->upstream->peer.free;
 
-    r->upstream->peer.data = peers;
+    r->upstream->peer.data = rrp;
     r->upstream->peer.get = ngx_http_nacos_get_peer;
     r->upstream->peer.free = ngx_http_nacos_free_peer;
 #if (NGX_HTTP_SSL)
-    peers->original_set_session = r->upstream->peer.set_session;
-    peers->original_save_session = r->upstream->peer.save_session;
+    rrp->original_set_session = r->upstream->peer.set_session;
+    rrp->original_save_session = r->upstream->peer.save_session;
     r->upstream->peer.set_session = ngx_http_nacos_peer_session;
     r->upstream->peer.save_session = ngx_http_nacos_save_peer_session;
 #endif
@@ -392,7 +408,8 @@ static ngx_http_nacos_peers_t *ngx_http_get_nacos_peers(
         cf.pool = new_peers->pool;
         cf.temp_pool = r->pool;
         cf.log = r->connection->log;
-        nusf = ngx_http_conf_upstream_srv_conf(us, ngx_http_nacos_upstream_module);
+        nusf =
+            ngx_http_conf_upstream_srv_conf(us, ngx_http_nacos_upstream_module);
         if (nusf->original_init_upstream(&cf, new_peers->us) != NGX_OK) {
             ngx_destroy_pool(new_peers->pool);
             return NULL;
@@ -407,24 +424,28 @@ static ngx_http_nacos_peers_t *ngx_http_get_nacos_peers(
 
 static ngx_int_t ngx_http_nacos_get_peer(ngx_peer_connection_t *pc,
                                          void *data) {
-    ngx_http_nacos_peers_t *peers;
+    ngx_http_nacos_rrp_t *rrp;
     ngx_int_t rc;
 
-    peers = data;
-    if ((rc = peers->original_get_peer(pc, peers->original_data)) != NGX_OK) {
+    rrp = data;
+    if ((rc = rrp->original_get_peer(pc, rrp->original_data)) != NGX_OK) {
         return rc;
     }
-    peers->ref++;
+
+    rrp->peers->ref++;
     return NGX_OK;
 }
 
 static void ngx_http_nacos_free_peer(ngx_peer_connection_t *pc, void *data,
                                      ngx_uint_t state) {
+    ngx_http_nacos_rrp_t *rrp;
     ngx_http_nacos_peers_t *peers;
 
-    peers = data;
-    peers->original_free_peer(pc, peers->original_data, state);
+    rrp = data;
+    peers = rrp->peers;
+    rrp->original_free_peer(pc, rrp->original_data, state);
     if (--peers->ref == 0) {
+        rrp->peers = NULL;
         ngx_destroy_pool(peers->pool);
     }
 }
@@ -433,14 +454,14 @@ static void ngx_http_nacos_free_peer(ngx_peer_connection_t *pc, void *data,
 
 static ngx_int_t ngx_http_nacos_peer_session(ngx_peer_connection_t *pc,
                                              void *data) {
-    ngx_http_nacos_peers_t *peers = data;
-    return peers->original_set_session(pc, peers->original_data);
+    ngx_http_nacos_rrp_t *rrp = data;
+    return rrp->original_set_session(pc, rrp->original_data);
 }
 
 static void ngx_http_nacos_save_peer_session(ngx_peer_connection_t *pc,
                                              void *data) {
-    ngx_http_nacos_peers_t *peers = data;
-    peers->original_save_session(pc, peers->original_data);
+    ngx_http_nacos_rrp_t *rrp = data;
+    rrp->original_save_session(pc, rrp->original_data);
 }
 
 #endif
