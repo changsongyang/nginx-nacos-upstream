@@ -4,17 +4,16 @@ set -e
 rm -rf nginx
 rm -rf objs
 
-nginx_version=1.20.2
+nginx_version=1.25.3
 curl -sSL https://nginx.org/download/nginx-${nginx_version}.tar.gz -o nginx.tar.gz
 
 tar zxvf nginx.tar.gz
 mv nginx-${nginx_version} nginx
-cp -r modules nginx/modules
 cd nginx
 patch -p1 < ../patch/nginx.patch
 
 
-./configure \
+cp -r ../modules modules && ./configure \
   --with-http_v2_module \
   --with-http_ssl_module \
   --add-module=modules/auxiliary \

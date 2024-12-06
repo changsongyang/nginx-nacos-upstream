@@ -2,6 +2,8 @@
 // Created by eleme on 2023/4/20.
 //
 
+#include <ngx_config.h>
+#include <ngx_core.h>
 #include <ngx_nacos_data.h>
 #include <ngx_nacos_http_parse.h>
 #include <ngx_nacos_udp.h>

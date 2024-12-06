@@ -2,8 +2,10 @@
 // Created by eleme on 2023/2/17.
 //
 
+#include <ngx_config.h>
+#include <ngx_core.h>
 #include <nacos_grpc_service.pb.h>
-#include <ngx_http_v2.h>
+#include <ngx_nacos_http_v2.h>
 #include <ngx_nacos_data.h>
 #include <ngx_nacos_grpc.h>
 #include <pb/pb_decode.h>
@@ -500,8 +502,8 @@ connect:
     c->requests = 0;
     gc->conn = c;
     gc->pool = pool;
-    gc->settings.init_window_size = NGX_HTTP_V2_DEFAULT_WINDOW;
-    gc->settings.max_frame_size = NGX_HTTP_V2_DEFAULT_FRAME_SIZE;
+    gc->settings.init_window_size = HTTP_V2_DEFAULT_WINDOW;
+    gc->settings.max_frame_size = HTTP_V2_DEFAULT_FRAME_SIZE;
 
     if (rc == NGX_AGAIN) {
         // connecting
@@ -1007,7 +1009,7 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
         len = buf->last - p;
 
         if (gc->frame_start) {
-            if (gc->frame_flags & NGX_HTTP_V2_PADDED_FLAG) {
+            if (gc->frame_flags & HTTP_V2_PADDED_FLAG) {
                 if (len < 1) {
                     return NGX_AGAIN;
                 }
@@ -1079,7 +1081,7 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
     }
 
     if (gc->frame_end) {
-        st->end_stream = gc->frame_flags & NGX_HTTP_V2_END_STREAM_FLAG ? 1 : 0;
+        st->end_stream = gc->frame_flags & HTTP_V2_END_STREAM_FLAG ? 1 : 0;
     }
 
     if (rc == NGX_OK && gc->frame_end && !st->end_stream &&
@@ -1177,13 +1179,13 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
 
     flags = gc->frame_flags;
 
-    if (gc->frame_type == NGX_HTTP_V2_HEADERS_FRAME) {
+    if (gc->frame_type == HTTP_V2_HEADERS_FRAME) {
         if (st->parsing_state == s_start) {
             st->resp_grpc_encode = 0;
             st->grpc_status = NGX_NACOS_GRPC_DEFAULT_GRPC_STATUS;
             // 解析 padding length 和 PRIORITY
-            min = (flags & NGX_HTTP_V2_PADDED_FLAG ? 1 : 0) +
-                  (flags & NGX_HTTP_V2_PRIORITY_FLAG ? 5 : 0);
+            min = (flags & HTTP_V2_PADDED_FLAG ? 1 : 0) +
+                  (flags & HTTP_V2_PRIORITY_FLAG ? 5 : 0);
             if (gc->frame_size < min) {
                 ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
                               "nacos server sent headers frame "
@@ -1195,7 +1197,7 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
                 return NGX_AGAIN;
             }
 
-            if (flags & NGX_HTTP_V2_PADDED_FLAG) {
+            if (flags & HTTP_V2_PADDED_FLAG) {
                 st->padding = *p++;
             }
             if (gc->frame_size < st->padding + min) {
@@ -1206,7 +1208,7 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
                 return NGX_ERROR;
             }
 
-            if (flags & NGX_HTTP_V2_PRIORITY_FLAG) {
+            if (flags & HTTP_V2_PRIORITY_FLAG) {
                 dep = ((p[0] & 0x7F) << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
                 if (st->stream_id == dep) {
                     ngx_log_error(
@@ -1222,7 +1224,7 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
             len = b->last - p;
             gc->frame_size -= min;
             gc->frame_flags &=
-                ~(NGX_HTTP_V2_PADDED_FLAG | NGX_HTTP_V2_PRIORITY_FLAG);
+                ~(HTTP_V2_PADDED_FLAG | HTTP_V2_PRIORITY_FLAG);
             st->parsing_state = p_receiving;
         }
     }
@@ -1236,7 +1238,7 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
         tb->last += len;
         b->pos += len;
 
-        if (gc->frame_type == NGX_HTTP_V2_HEADERS_FRAME) {
+        if (gc->frame_type == HTTP_V2_HEADERS_FRAME) {
             if (st->padding && gc->frame_end) {
                 // remove padding
                 tb->last -= st->padding;
@@ -1245,7 +1247,7 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
         }
 
         if (gc->frame_end &&
-            (gc->frame_flags & NGX_HTTP_V2_END_HEADERS_FLAG) != 0) {
+            (gc->frame_flags & HTTP_V2_END_HEADERS_FLAG) != 0) {
             st->end_header = 1;
             st->parsing_state = p_end_header;
             goto parse_header;
@@ -1281,8 +1283,8 @@ parse_header:
                                       index);
                         return NGX_ERROR;
                     }
-                    key = *ngx_http_v2_get_static_name(index);
-                    value = *ngx_http_v2_get_static_value(index);
+                    key = *ngx_nacos_http_v2_get_static_name(index);
+                    value = *ngx_nacos_http_v2_get_static_value(index);
                     goto parse;
                 } else if ((ch & 0xc0) == 0x40) {
                     index = ch & ~0xc0;
@@ -1298,7 +1300,7 @@ parse_header:
                     } else if (index == 0x3F) {
                         state = s_indexed_header_name;
                     } else {
-                        key = *ngx_http_v2_get_static_name(index);
+                        key = *ngx_nacos_http_v2_get_static_name(index);
                         state = s_literal_header_value_length_prefix;
                     }
                 } else if ((ch & 0xe0) == 0x20) {
@@ -1317,7 +1319,7 @@ parse_header:
                     } else if (index == 0x0F) {
                         state = s_indexed_header_name;
                     } else {
-                        key = *ngx_http_v2_get_static_name(index);
+                        key = *ngx_nacos_http_v2_get_static_name(index);
                         state = s_literal_header_value_length_prefix;
                     }
                 }
@@ -1336,7 +1338,7 @@ parse_header:
                     return NGX_ERROR;
                 }
                 index = field_len & 0xFF;
-                key = *ngx_http_v2_get_static_name(index);
+                key = *ngx_nacos_http_v2_get_static_name(index);
                 state = s_literal_header_value_length_prefix;
                 break;
             case s_literal_header_name_length_prefix:
@@ -1369,7 +1371,7 @@ parse_header:
                 if (huffmanEncoded) {
                     ch = 0;
                     tp = tmp;
-                    if (ngx_http_v2_huff_decode(&ch, p, field_len, &tp, 1,
+                    if (ngx_nacos_http_v2_huff_decode(&ch, p, field_len, &tp, 1,
                                                 gc->conn->log) != NGX_OK) {
                         ngx_log_error(
                             NGX_LOG_ERR, gc->conn->log, 0,
@@ -1418,7 +1420,7 @@ parse_header:
                 if (huffmanEncoded) {
                     ch = 0;
                     tp = tmp;
-                    if (ngx_http_v2_huff_decode(&ch, p, field_len, &tp, 1,
+                    if (ngx_nacos_http_v2_huff_decode(&ch, p, field_len, &tp, 1,
                                                 gc->conn->log) != NGX_OK) {
                         ngx_log_error(
                             NGX_LOG_ERR, gc->conn->log, 0,
@@ -1467,7 +1469,7 @@ parse_header:
     }
 
     tb->pos = tb->last = tb->start;
-    st->end_stream = flags & NGX_HTTP_V2_END_STREAM_FLAG ? 1 : 0;
+    st->end_stream = flags & HTTP_V2_END_STREAM_FLAG ? 1 : 0;
     st->parsing_state = 0;
     rc = NGX_OK;
     if (st->end_stream) {
@@ -1500,7 +1502,7 @@ static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
                       gc->frame_stream_id);
         return NGX_ERROR;
     }
-    if (gc->frame_flags & NGX_HTTP_V2_ACK_FLAG) {
+    if (gc->frame_flags & HTTP_V2_ACK_FLAG) {
         if (gc->frame_size != 0) {
             ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
                           "nacos server sent settings frame "
@@ -1542,7 +1544,7 @@ static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
                 gc->settings.max_conn_streams = value;
                 break;
             case 4:
-                if (value > NGX_HTTP_V2_MAX_WINDOW) {
+                if (value > HTTP_V2_MAX_WINDOW) {
                     ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
                                   "nacos server sent settings frame "
                                   "with too large initial window size: %ui",
@@ -1588,8 +1590,8 @@ static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
         return NGX_ERROR;
     }
     ngx_memzero(buf->b, 9);
-    buf->b[3] = NGX_HTTP_V2_SETTINGS_FRAME;
-    buf->b[4] = NGX_HTTP_V2_ACK_FLAG;
+    buf->b[3] = HTTP_V2_SETTINGS_FRAME;
+    buf->b[4] = HTTP_V2_ACK_FLAG;
     buf->len = 9;
     return ngx_nacos_grpc_send_buf(buf, 0);
 }
@@ -1616,7 +1618,7 @@ static ngx_int_t ngx_nacos_grpc_parse_ping_frame(ngx_nacos_grpc_conn_t *gc) {
            ((uint64_t) p[2] << 40) | ((uint64_t) p[3] << 32) |
            ((uint64_t) p[4] << 24) | ((uint64_t) p[5] << 16) |
            ((uint64_t) p[6] << 8) | (uint64_t) p[7];
-    if (gc->frame_flags & NGX_HTTP_V2_ACK_FLAG) {
+    if (gc->frame_flags & HTTP_V2_ACK_FLAG) {
         if (data != gc->heartbeat) {
             ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
                           "nacos server sent ping frame "
@@ -1633,7 +1635,7 @@ static ngx_int_t ngx_nacos_grpc_parse_ping_frame(ngx_nacos_grpc_conn_t *gc) {
         return NGX_ERROR;
     }
     ngx_nacos_grpc_encode_frame_header(
-        gc->m_stream, buf->b, NGX_HTTP_V2_PING_FRAME, NGX_HTTP_V2_ACK_FLAG, 8);
+        gc->m_stream, buf->b, HTTP_V2_PING_FRAME, HTTP_V2_ACK_FLAG, 8);
     buf->len = 9 + 8;
     p = buf->b + 9;
     p[0] = (data >> 56) & 0xFF;
@@ -1735,7 +1737,7 @@ static ngx_int_t ngx_nacos_grpc_update_send_window(ngx_nacos_grpc_conn_t *gc,
         return NGX_ERROR;
     }
 
-    if (win_update > (size_t) NGX_HTTP_V2_MAX_WINDOW - st->send_win) {
+    if (win_update > (size_t) HTTP_V2_MAX_WINDOW - st->send_win) {
         ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
                       "nacos server sent too large window update");
         return NGX_ERROR;
@@ -1834,38 +1836,38 @@ static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_encode_request(
 
     b = buf->b + 9;
     // :method: POST
-    *b++ = ngx_http_v2_indexed(NGX_HTTP_V2_METHOD_POST_INDEX);
+    *b++ = ngx_nacos_http_v2_indexed(HTTP_V2_METHOD_POST_INDEX);
     // :schema: http
-    *b++ = ngx_http_v2_indexed(NGX_HTTP_V2_SCHEME_HTTP_INDEX);
+    *b++ = ngx_nacos_http_v2_indexed(HTTP_V2_SCHEME_HTTP_INDEX);
     // path:
-    *b++ = ngx_http_v2_inc_indexed(NGX_HTTP_V2_PATH_INDEX);
-    b = ngx_http_v2_write_value(b, mtd->data, mtd->len, tmp);
+    *b++ = ngx_nacos_http_v2_inc_indexed(HTTP_V2_PATH_INDEX);
+    b = ngx_nacos_http_v2_write_value(b, mtd->data, mtd->len, tmp);
     // AUTHORITY
-    *b++ = ngx_http_v2_inc_indexed(NGX_HTTP_V2_AUTHORITY_INDEX);
-    b = ngx_http_v2_write_value(b, (u_char *) "nacos-server",
+    *b++ = ngx_nacos_http_v2_inc_indexed(HTTP_V2_AUTHORITY_INDEX);
+    b = ngx_nacos_http_v2_write_value(b, (u_char *) "nacos-server",
                                 sizeof("nacos-server") - 1, tmp);
     // user-agent
-    *b++ = ngx_http_v2_inc_indexed(NGX_HTTP_V2_USER_AGENT_INDEX);
-    b = ngx_http_v2_write_value(b, (u_char *) "nginx-nacos-grpc-client",
+    *b++ = ngx_nacos_http_v2_inc_indexed(HTTP_V2_USER_AGENT_INDEX);
+    b = ngx_nacos_http_v2_write_value(b, (u_char *) "nginx-nacos-grpc-client",
                                 sizeof("nginx-nacos-grpc-client") - 1, tmp);
     // content-type
-    *b++ = ngx_http_v2_inc_indexed(NGX_HTTP_V2_CONTENT_TYPE_INDEX);
-    b = ngx_http_v2_write_value(b, (u_char *) "application/grpc",
+    *b++ = ngx_nacos_http_v2_inc_indexed(HTTP_V2_CONTENT_TYPE_INDEX);
+    b = ngx_nacos_http_v2_write_value(b, (u_char *) "application/grpc",
                                 sizeof("application/grpc") - 1, tmp);
     // te: trailers
     *b++ = 0;
-    b = ngx_http_v2_write_name(b, (u_char *) "te", sizeof("te") - 1, tmp);
-    b = ngx_http_v2_write_value(b, (u_char *) "trailers",
+    b = ngx_nacos_http_v2_write_name(b, (u_char *) "te", sizeof("te") - 1, tmp);
+    b = ngx_nacos_http_v2_write_value(b, (u_char *) "trailers",
                                 sizeof("trailers") - 1, tmp);
     // grpc-accept-encoding: identity
     *b++ = 0;
-    b = ngx_http_v2_write_name(b, (u_char *) "grpc-accept-encoding",
+    b = ngx_nacos_http_v2_write_name(b, (u_char *) "grpc-accept-encoding",
                                sizeof("grpc-accept-encoding") - 1, tmp);
-    b = ngx_http_v2_write_value(b, (u_char *) "identity",
+    b = ngx_nacos_http_v2_write_value(b, (u_char *) "identity",
                                 sizeof("identity") - 1, tmp);
     buf->len = len = b - buf->b;
-    ngx_nacos_grpc_encode_frame_header(st, buf->b, NGX_HTTP_V2_HEADERS_FRAME,
-                                       NGX_HTTP_V2_END_HEADERS_FLAG, len - 9);
+    ngx_nacos_grpc_encode_frame_header(st, buf->b, HTTP_V2_HEADERS_FRAME,
+                                       HTTP_V2_END_HEADERS_FLAG, len - 9);
     return buf;
 }
 
@@ -2291,8 +2293,8 @@ static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_encode_data_msg(
     }
     b = buf->b;
     ngx_nacos_grpc_encode_frame_header(
-        st, b, NGX_HTTP_V2_DATA_FRAME,
-        end_stream ? NGX_HTTP_V2_END_STREAM_FLAG : 0, 5 + b_len);
+        st, b, HTTP_V2_DATA_FRAME,
+        end_stream ? HTTP_V2_END_STREAM_FLAG : 0, 5 + b_len);
     b[9] = 0;
     b[10] = (b_len >> 24) & 0xFF;
     b[11] = (b_len >> 16) & 0xFF;
@@ -2467,7 +2469,7 @@ static ngx_int_t ngx_nacos_grpc_send_win_update_frame(
         return NGX_ERROR;
     }
     ngx_nacos_grpc_encode_frame_header(st, buf->b,
-                                       NGX_HTTP_V2_WINDOW_UPDATE_FRAME, 0, 4);
+                                       HTTP_V2_WINDOW_UPDATE_FRAME, 0, 4);
     buf->len = 9 + 4;
     p = buf->b + 9;
     p[0] = (win_update >> 24) & 0x7F;
@@ -2491,7 +2493,7 @@ static ngx_int_t ngx_nacos_send_ping_frame(ngx_nacos_grpc_conn_t *gc) {
         return NGX_ERROR;
     }
     ngx_nacos_grpc_encode_frame_header(gc->m_stream, buf->b,
-                                       NGX_HTTP_V2_PING_FRAME, 0, 8);
+                                       HTTP_V2_PING_FRAME, 0, 8);
     p = buf->b + 9;
     data = ++gc->heartbeat;
     p[0] = (data >> 56) & 0xFF;

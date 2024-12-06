@@ -1,6 +1,9 @@
 //
 // Created by dear on 22-5-30.
 //
+
+#include <ngx_config.h>
+#include <ngx_core.h>
 #include <backup.pb.h>
 #include <ngx_nacos_data.h>
 #include <ngx_nacos_http_parse.h>

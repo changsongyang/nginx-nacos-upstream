@@ -3,7 +3,6 @@
 
 #ifndef PB_NACOS_GRPC_SERVICE_PB_H_INCLUDED
 #define PB_NACOS_GRPC_SERVICE_PB_H_INCLUDED
-#include <ngx_auto_headers.h>
 #include <pb/pb.h>
 
 /* @@protoc_insertion_point(includes) */

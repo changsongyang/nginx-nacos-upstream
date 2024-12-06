@@ -175,6 +175,9 @@ if (NACOS)
             modules/nacos/ngx_nacos_udp.c
             modules/nacos/ngx_nacos_grpc.c
             modules/nacos/nacos_grpc_service.pb.c
+            modules/nacos/ngx_nacos_http_v2.c
+            modules/nacos/ngx_nacos_http_v2_huff_decode.c
+            modules/nacos/ngx_nacos_http_v2_huff_encode.c
             ${BACKUP_PROTO}
             )
 

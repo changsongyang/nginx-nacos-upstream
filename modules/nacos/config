@@ -21,6 +21,9 @@ ngx_module_srcs="modules/nacos/yaij/yajl.c  \
     modules/nacos/ngx_nacos_udp.c \
     modules/nacos/ngx_nacos_grpc.c \
     modules/nacos/backup.pb.c \
+    modules/nacos/ngx_nacos_http_v2.c \
+    modules/nacos/ngx_nacos_http_v2_huff_decode.c \
+    modules/nacos/ngx_nacos_http_v2_huff_encode.c \
     modules/nacos/nacos_grpc_service.pb.c"
 
 ngx_module_libs=
