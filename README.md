@@ -6,7 +6,7 @@ nginx 订阅 nacos，实现 服务发现 和 配置 动态更新。 nacos 1.x �
 - nginx 订阅 nacos 获取配置，写入 nginx 标准变量。（配置功能，只支持 grpc 协议）。
 
 ### 配置示例
-基于 NGINX 1.20.2 和 NACOS 2.x 版本开发。
+基于 NACOS 2.x 版本开发。openresty is required if using lua.
 
 ```
 nacos {
