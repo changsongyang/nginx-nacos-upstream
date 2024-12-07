@@ -1,30 +1,30 @@
 ngx_module_type=AUXILIARY
 ngx_module_name=ngx_nacos_module
-ngx_module_incs=modules/nacos
-ngx_module_deps=modules/nacos/ngx_nacos_aux.h
-ngx_module_srcs="modules/nacos/yaij/yajl.c  \
-    modules/nacos/yaij/yajl_alloc.c  \
-    modules/nacos/yaij/yajl_buf.c  \
-    modules/nacos/yaij/yajl_encode.c  \
-    modules/nacos/yaij/yajl_gen.c  \
-    modules/nacos/yaij/yajl_lex.c  \
-    modules/nacos/yaij/yajl_parser.c  \
-    modules/nacos/yaij/yajl_tree.c  \
-    modules/nacos/yaij/yajl_version.c  \
-    modules/nacos/pb/pb_common.c  \
-    modules/nacos/pb/pb_decode.c  \
-    modules/nacos/pb/pb_encode.c  \
-    modules/nacos/ngx_nacos_module.c  \
-    modules/nacos/ngx_nacos_aux.c  \
-    modules/nacos/ngx_nacos_http_parse.c  \
-    modules/nacos/ngx_nacos_data.c  \
-    modules/nacos/ngx_nacos_udp.c \
-    modules/nacos/ngx_nacos_grpc.c \
-    modules/nacos/backup.pb.c \
-    modules/nacos/ngx_nacos_http_v2.c \
-    modules/nacos/ngx_nacos_http_v2_huff_decode.c \
-    modules/nacos/ngx_nacos_http_v2_huff_encode.c \
-    modules/nacos/nacos_grpc_service.pb.c"
+ngx_module_incs=$ngx_addon_dir
+ngx_module_deps=$ngx_addon_dir/ngx_nacos_aux.h
+ngx_module_srcs="$ngx_addon_dir/yaij/yajl.c  \
+    $ngx_addon_dir/yaij/yajl_alloc.c  \
+    $ngx_addon_dir/yaij/yajl_buf.c  \
+    $ngx_addon_dir/yaij/yajl_encode.c  \
+    $ngx_addon_dir/yaij/yajl_gen.c  \
+    $ngx_addon_dir/yaij/yajl_lex.c  \
+    $ngx_addon_dir/yaij/yajl_parser.c  \
+    $ngx_addon_dir/yaij/yajl_tree.c  \
+    $ngx_addon_dir/yaij/yajl_version.c  \
+    $ngx_addon_dir/pb/pb_common.c  \
+    $ngx_addon_dir/pb/pb_decode.c  \
+    $ngx_addon_dir/pb/pb_encode.c  \
+    $ngx_addon_dir/ngx_nacos_module.c  \
+    $ngx_addon_dir/ngx_nacos_aux.c  \
+    $ngx_addon_dir/ngx_nacos_http_parse.c  \
+    $ngx_addon_dir/ngx_nacos_data.c  \
+    $ngx_addon_dir/ngx_nacos_udp.c \
+    $ngx_addon_dir/ngx_nacos_grpc.c \
+    $ngx_addon_dir/backup.pb.c \
+    $ngx_addon_dir/ngx_nacos_http_v2.c \
+    $ngx_addon_dir/ngx_nacos_http_v2_huff_decode.c \
+    $ngx_addon_dir/ngx_nacos_http_v2_huff_encode.c \
+    $ngx_addon_dir/nacos_grpc_service.pb.c"
 
 ngx_module_libs=
 ngx_module_order=
@@ -38,7 +38,7 @@ ngx_module_type=HTTP
 ngx_module_name=ngx_http_nacos_upstream_module
 ngx_module_incs=
 ngx_module_deps=
-ngx_module_srcs=modules/nacos/ngx_http_nacos_upstream_module.c
+ngx_module_srcs=$ngx_addon_dir/ngx_http_nacos_upstream_module.c
 ngx_module_libs=
 ngx_module_order=
 ngx_module_link=ADDON
@@ -51,7 +51,7 @@ ngx_module_type=HTTP
 ngx_module_name=ngx_http_nacos_config_module
 ngx_module_incs=
 ngx_module_deps=
-ngx_module_srcs=modules/nacos/ngx_http_nacos_config_module.c
+ngx_module_srcs=$ngx_addon_dir/ngx_http_nacos_config_module.c
 ngx_module_libs=
 ngx_module_order=
 ngx_module_link=ADDON

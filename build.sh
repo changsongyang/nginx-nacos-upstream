@@ -13,11 +13,11 @@ cd nginx
 patch -p1 < ../patch/nginx.patch
 
 
-cp -r ../modules modules && ./configure \
+./configure \
   --with-http_v2_module \
   --with-http_ssl_module \
-  --add-module=modules/auxiliary \
-  --add-module=modules/nacos \
+  --add-module=../modules/auxiliary \
+  --add-module=../modules/nacos \
   --prefix=.. \
   --conf-path=conf/my.conf \
   --error-log-path=objs/logs/error.log \
