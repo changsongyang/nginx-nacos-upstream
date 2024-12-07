@@ -50,15 +50,29 @@ http {
             add_header X-Var-Nacos "$n_var";
             return 200 "hear .... $n_var .... $dd";
         }
+        # ===== openresty access nacos config data ===
+        location ^~ /echo-by-lua {
+            content_by_lua_block {
+                local md5 = ngx.var.md5_var;
+                local content = ngx.var.n_var;
+                if not md5 then
+                    md5 = "not found md5";
+                end
+                if not content then
+                    content = "not found content";
+                end
+                ngx.say("md5 = "..md5.."  content = "..content);
+            }
+        }
     }
 }
 ```
 
-### 编译
+### nginx 编译
 - 本项目支持 nginx 1.10 及以上版本，所以需要提前下载相应版本的 [nginx](https://nginx.org/download)。例如1.15.2
 ```bash
 wget https://nginx.org/download/nginx-1.15.2.tar.gz
-tar zxvf tar zxvf nginx-1.15.2.tar.gz
+tar zxvf nginx-1.15.2.tar.gz
 ```
 - 下载本项目源代码 nginx-nacos-upstream .本项目对 nginx 源代码有少量修改，所以需要 打上 patch
 ```bash
@@ -70,11 +84,28 @@ cd nginx-1.15.2 && patch -p1 < ../nginx-nacos-upstream/patch/nginx.patch
  sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
  ```
 
-grpc 使用的是 http2 传输，所以 nacos 模块需要和 http2 模块一起安装：
+```bash
+./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos --with-http_ssl_module --with-http_v2_module && make
+```
+
+### openresty 编译
+- 本项目支持 openresty 1.10 及以上版本，所以需要提前下载相应版本的 [openresty](https://openresty.org/cn/download.html)。例如1.25.3.2
+```bash
+wget https://openresty.org/download/openresty-1.25.3.2.tar.gz
+tar zxvf openresty-1.25.3.2.tar.gz
+```
+- 下载本项目源代码 nginx-nacos-upstream .本项目对 nginx 源代码有少量修改，所以需要 打上 patch
+```bash
+cd openresty-1.25.3.2 && patch -p1 < ../nginx-nacos-upstream/patch/openresty.patch
+```
+- build nginx. ubuntu 下安装方式为
 
 ```bash
-cp -r ../nginx-nacos-upstream/modules modules
-./configure --add-module=modules/auxiliary --add-module=modules/nacos --with-http_ssl_module --with-http_v2_module && make
+ sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
+ ```
+
+```bash
+./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos && make
 ```
 
 ### 原理
@@ -217,7 +248,7 @@ nacos 变量功能让 nginx 的灵活性大大增强了。
  * nginx 通过 GRPC 协议订阅 nacos 配置。（✅）
  * 发布 1.0 版本，可以基本使用。（✅）
  * 删除 nginx 原有代码，对 nginx 原有代码的修改通过 patch 支持各个 nginx 版本。（✅）
- * 支持集成 openresty 
+ * 支持集成 openresty。（✅）
 
 # License
 - The project is licensed under the Apache License Version 2.0 except for yaij and pb,  Copyright (c) 2022-2024, Zhwaaaaaa
