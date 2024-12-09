@@ -234,13 +234,11 @@ static ngx_int_t ngx_http_nacos_add_server(ngx_http_nacos_peers_t *peers) {
         if (server == NULL) {
             return NGX_ERROR;
         }
+        ngx_memzero(server, sizeof(*server));
         server->addrs = u.addrs;
         server->naddrs = u.naddrs;
         server->name = u.url;
         server->weight = adr[i].weight;
-        server->down = 0;
-        server->backup = 0;
-        server->fail_timeout = 15000;
     }
     return NGX_OK;
 }

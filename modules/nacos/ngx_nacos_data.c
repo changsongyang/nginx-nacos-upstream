@@ -94,7 +94,7 @@ ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
     }
 
     fd = ngx_open_file(filename.data, NGX_FILE_WRONLY, NGX_FILE_TRUNCATE,
-                       NGX_FILE_DEFAULT_ACCESS);
+                       0666);
     if (fd == NGX_INVALID_FILE) {
         err = ngx_errno;
         ngx_log_error(NGX_LOG_EMERG, pool->log, err,

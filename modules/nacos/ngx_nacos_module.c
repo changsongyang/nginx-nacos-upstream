@@ -233,7 +233,6 @@ static char *ngx_nacos_conf_block(ngx_conf_t *cf, ngx_command_t *cmd,
     char *rv;
     ngx_int_t i;
     ngx_url_t u;
-    ngx_err_t err;
     ngx_nacos_main_conf_t *ncf, **mncf = conf;
 
     if (*mncf) {
@@ -331,13 +330,6 @@ static char *ngx_nacos_conf_block(ngx_conf_t *cf, ngx_command_t *cmd,
         ngx_str_set(&ncf->cache_dir, "nacos_cache");
     }
     if (ngx_conf_full_name(cf->cycle, &ncf->cache_dir, 0) != NGX_OK) {
-        rv = NGX_CONF_ERROR;
-        goto end;
-    }
-    if ((err = ngx_create_full_path(ncf->cache_dir.data, 0744))) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, err,
-                           "nacos create cache dir \"%V\" error",
-                           &ncf->cache_dir);
         rv = NGX_CONF_ERROR;
         goto end;
     }
