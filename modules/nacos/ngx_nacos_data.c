@@ -77,6 +77,7 @@ ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
     ssize_t rd;
     ngx_fd_t fd;
     ngx_err_t err;
+    ngx_flag_t dir_end;
     char *c;
 
     if (cache->adr == NULL) {
@@ -86,15 +87,23 @@ ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
     pool = cache->pool;
 
     filename.data = tmp;
-    filename.len = ngx_snprintf(tmp, sizeof(tmp) - 1, "%V@@%V", &cache->group,
+    filename.len = ngx_snprintf(tmp, sizeof(tmp) - 1, "-%V@@%V", &cache->group,
                                 &cache->data_id) -
                    tmp;
+    dir_end = 0;
+    if (mcf->cache_dir.data[mcf->cache_dir.len - 1] == '/') {
+        --filename.len;
+        ++filename.data;
+        dir_end = 1;
+    }
     if (ngx_get_full_name(pool, &mcf->cache_dir, &filename) != NGX_OK) {
         return NGX_ERROR;
     }
 
-    fd = ngx_open_file(filename.data, NGX_FILE_WRONLY, NGX_FILE_TRUNCATE,
-                       0666);
+    if (!dir_end) {
+        filename.data[mcf->cache_dir.len] = '/';
+    }
+    fd = ngx_open_file(filename.data, NGX_FILE_WRONLY, NGX_FILE_TRUNCATE, NGX_FILE_DEFAULT_ACCESS);
     if (fd == NGX_INVALID_FILE) {
         err = ngx_errno;
         ngx_log_error(NGX_LOG_EMERG, pool->log, err,

@@ -1,7 +1,7 @@
-diff --git a/bundle/nginx-1.25.3/auto/make b/bundle/nginx-1.25.3/auto/make
+diff --git a/auto/make b/auto/make
 index 25ee3fb..d61a188 100644
---- a/bundle/nginx-1.25.3/auto/make
-+++ b/bundle/nginx-1.25.3/auto/make
+--- a/auto/make
++++ b/auto/make
 @@ -38,7 +38,7 @@ fi
  
  # ALL_INCS, required by the addons and by OpenWatcom C precompiled headers
@@ -20,10 +20,10 @@ index 25ee3fb..d61a188 100644
      | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont$ngx_include_opt\1/g" \
            -e "s/\//$ngx_regex_dirsep/g"`
  
-diff --git a/bundle/nginx-1.25.3/auto/modules b/bundle/nginx-1.25.3/auto/modules
+diff --git a/auto/modules b/auto/modules
 index 300d07c..f72c9a9 100644
---- a/bundle/nginx-1.25.3/auto/modules
-+++ b/bundle/nginx-1.25.3/auto/modules
+--- a/auto/modules
++++ b/auto/modules
 @@ -1381,7 +1381,7 @@ if [ $USE_PCRE = YES ]; then
  fi
  
@@ -33,10 +33,10 @@ index 300d07c..f72c9a9 100644
  
  
  # thread pool module should be initialized after events
-diff --git a/bundle/nginx-1.25.3/auto/sources b/bundle/nginx-1.25.3/auto/sources
+diff --git a/auto/sources b/auto/sources
 index 46408ee..ab13c93 100644
---- a/bundle/nginx-1.25.3/auto/sources
-+++ b/bundle/nginx-1.25.3/auto/sources
+--- a/auto/sources
++++ b/auto/sources
 @@ -81,6 +81,9 @@ CORE_SRCS="src/core/nginx.c \
             src/core/ngx_syslog.c"
  
@@ -47,10 +47,10 @@ index 46408ee..ab13c93 100644
  EVENT_MODULES="ngx_events_module ngx_event_core_module"
  
  EVENT_INCS="src/event src/event/modules src/event/quic"
-diff --git a/bundle/nginx-1.25.3/src/http/ngx_http_upstream.c b/bundle/nginx-1.25.3/src/http/ngx_http_upstream.c
+diff --git a/src/http/ngx_http_upstream.c b/src/http/ngx_http_upstream.c
 index 2be233c..f4ee563 100644
---- a/bundle/nginx-1.25.3/src/http/ngx_http_upstream.c
-+++ b/bundle/nginx-1.25.3/src/http/ngx_http_upstream.c
+--- a/src/http/ngx_http_upstream.c
++++ b/src/http/ngx_http_upstream.c
 @@ -6146,11 +6146,13 @@ ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
          return rv;
      }
@@ -65,10 +65,10 @@ index 2be233c..f4ee563 100644
  
      return rv;
  }
-diff --git a/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.c b/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.c
+diff --git a/src/os/unix/ngx_process_cycle.c b/src/os/unix/ngx_process_cycle.c
 index dadf03f..d003cc6 100644
---- a/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.c
-+++ b/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.c
+--- a/src/os/unix/ngx_process_cycle.c
++++ b/src/os/unix/ngx_process_cycle.c
 @@ -10,6 +10,9 @@
  #include <ngx_event.h>
  #include <ngx_channel.h>
@@ -130,10 +130,10 @@ index dadf03f..d003cc6 100644
 +  ngx_worker_process_init(cycle, -1);
 +}
 +#endif
-diff --git a/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.h b/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.h
+diff --git a/src/os/unix/ngx_process_cycle.h b/src/os/unix/ngx_process_cycle.h
 index 5149396..dbce402 100644
---- a/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.h
-+++ b/bundle/nginx-1.25.3/src/os/unix/ngx_process_cycle.h
+--- a/src/os/unix/ngx_process_cycle.h
++++ b/src/os/unix/ngx_process_cycle.h
 @@ -59,4 +59,8 @@ extern sig_atomic_t    ngx_reopen;
  extern sig_atomic_t    ngx_change_binary;
  

@@ -82,9 +82,6 @@ cd nginx-1.15.2 && patch -p1 < ../nginx-nacos-upstream/patch/nginx.patch
 
 ```bash
  sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
- ```
-
-```bash
 ./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos --with-http_ssl_module --with-http_v2_module && make
 ```
 
@@ -94,18 +91,18 @@ cd nginx-1.15.2 && patch -p1 < ../nginx-nacos-upstream/patch/nginx.patch
 wget https://openresty.org/download/openresty-1.25.3.2.tar.gz
 tar zxvf openresty-1.25.3.2.tar.gz
 ```
-- 下载本项目源代码 nginx-nacos-upstream .本项目对 nginx 源代码有少量修改，所以需要 打上 patch
+- 下载本项目源代码 nginx-nacos-upstream .本项目对 nginx 源代码有少量修改，所以需要 打上 patch. 注意，这里使用的是openresty.patch 并且进入 bundle 下的 nginx 目录执行
 ```bash
-cd openresty-1.25.3.2 && patch -p1 < ../nginx-nacos-upstream/patch/openresty.patch
+cd openresty-1.25.3.2/bundle/nginx-1.25.3 && patch -p1 < ../../../nginx-nacos-upstream/patch/openresty.patch
 ```
+
 - build nginx. ubuntu 下安装方式为
 
 ```bash
- sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
- ```
-
-```bash
-./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos && make
+cd ../..
+sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
+./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos
+make
 ```
 
 ### 原理
@@ -177,9 +174,9 @@ service_namespace "public";
 ```
 
 #### cache_dir
-nacos 的文件 缓存目录，下次启动 会优先从 这个目录读取数据，加快启动时间，否则从 http 地址拉取。"/"结尾
+nacos 的文件 缓存目录，下次启动 会优先从 这个目录读取数据，加快启动时间，否则从 http 地址拉取。保证该目录 nobody 用户可读写
 ```
-cache_dir nacos_cache/;
+cache_dir nacos_cache;
 ```
 
 

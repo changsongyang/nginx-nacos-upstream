@@ -500,10 +500,6 @@ static ngx_int_t ngx_nacos_subscribe(ngx_conf_t *cf, ngx_nacos_sub_t *sub,
                 return NGX_ERROR;
             }
         }
-
-        if (ngx_nacos_write_disk_data(mcf, &tmp) == NGX_ERROR) {
-            return NGX_ERROR;
-        }
     }
 
     kptr = ngx_array_push(all_keys);
