@@ -2241,6 +2241,8 @@ static ngx_int_t ngx_nacos_grpc_encode_payload_init(
     en->payload.body.value.funcs.encode = ngx_nacos_grpc_pb_encode_str;
     en->payload.metadata.type.arg = &en->type;
     en->payload.metadata.type.funcs.encode = ngx_nacos_grpc_pb_encode_str;
+    en->payload.has_metadata = 1;
+    en->payload.has_body = 1;
 
     if (grpc_ctx.ncf->username.len > 0 && grpc_ctx.ncf->password.len > 0) {
         en->payload.metadata.headers.arg = grpc_ctx.ncf;

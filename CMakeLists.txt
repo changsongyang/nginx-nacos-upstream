@@ -70,6 +70,10 @@ set(NGX_C_FILES nginx/src/core/nginx.c
         nginx/src/os/unix/ngx_user.c
         nginx/src/os/unix/ngx_dlopen.c
         nginx/src/os/unix/ngx_process_cycle.c
+        nginx/src/os/unix/ngx_linux_init.c
+        nginx/src/event/modules/ngx_epoll_module.c
+        nginx/src/os/unix/ngx_linux_sendfile_chain.c
+        nginx/src/core/ngx_bpf.c
         nginx/src/event/ngx_event_openssl.c
         nginx/src/event/ngx_event_openssl_stapling.c
         nginx/src/core/ngx_regex.c
@@ -85,6 +89,8 @@ set(NGX_C_FILES nginx/src/core/nginx.c
         nginx/src/http/ngx_http_upstream.c
         nginx/src/http/ngx_http_upstream_round_robin.c
         nginx/src/http/ngx_http_file_cache.c
+        nginx/src/http/ngx_http_huff_decode.c
+        nginx/src/http/ngx_http_huff_encode.c
         nginx/src/http/ngx_http_write_filter_module.c
         nginx/src/http/ngx_http_header_filter_module.c
         nginx/src/http/modules/ngx_http_chunked_filter_module.c
@@ -101,8 +107,6 @@ set(NGX_C_FILES nginx/src/core/nginx.c
         nginx/src/http/v2/ngx_http_v2.c
         nginx/src/http/v2/ngx_http_v2_table.c
         nginx/src/http/v2/ngx_http_v2_encode.c
-        nginx/src/http/v2/ngx_http_v2_huff_decode.c
-        nginx/src/http/v2/ngx_http_v2_huff_encode.c
         nginx/src/http/v2/ngx_http_v2_module.c
         nginx/src/http/modules/ngx_http_static_module.c
         nginx/src/http/modules/ngx_http_autoindex_module.c
@@ -133,7 +137,7 @@ set(NGX_C_FILES nginx/src/core/nginx.c
         nginx/src/http/modules/ngx_http_upstream_random_module.c
         nginx/src/http/modules/ngx_http_upstream_keepalive_module.c
         nginx/src/http/modules/ngx_http_upstream_zone_module.c
-        )
+)
 
 set(NGX_INC_DIR nginx/src/core
         nginx/src/event

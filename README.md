@@ -226,9 +226,22 @@ upstream backend {
     # server 127.0.0.1:8080;
     # 如果provider使用的spring，service_name 要和 spring.application.name一致
     # 不知道 provider 端怎么写请参考 https://github.com/zhwaaaaaa/springmvc-nacos-registry
-    nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP;
+    # weight * nacos_weight 是 nginx 的权重，默认1 max_fails=1 fail_timeout 对应 nginx 的server 配置
+    nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP weight=1 max_fails=1 fail_timeout=10s;
 }
 ```
+
+### nacos_use_cluster
+如果指定，则对应使用 cluster ip. 支持变量和字面量组合. 不指定，则使用所有集群 ip
+```
+set $cluster "DEFAULT";
+
+upstream backend {
+    nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP weight=1 max_fails=1 fail_timeout=10s;
+    nacos_use_cluster $cluster;
+}
+```
+
 
 ### nacos_config_var
 订阅 nacos 的配置，nginx把它写到 http 变量中。这个配置项可以出现在 http server location if {} 块中。

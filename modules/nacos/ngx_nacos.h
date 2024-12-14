@@ -68,6 +68,7 @@ typedef struct {
     ngx_str_t host;
     int32_t port;
     int32_t weight;
+    ngx_str_t cluster;
 } ngx_nacos_service_addr_t;
 typedef struct {
     uint64_t version;

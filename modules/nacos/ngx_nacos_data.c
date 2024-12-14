@@ -103,7 +103,8 @@ ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
     if (!dir_end) {
         filename.data[mcf->cache_dir.len] = '/';
     }
-    fd = ngx_open_file(filename.data, NGX_FILE_WRONLY, NGX_FILE_TRUNCATE, NGX_FILE_DEFAULT_ACCESS);
+    fd = ngx_open_file(filename.data, NGX_FILE_WRONLY, NGX_FILE_TRUNCATE,
+                       NGX_FILE_DEFAULT_ACCESS);
     if (fd == NGX_INVALID_FILE) {
         err = ngx_errno;
         ngx_log_error(NGX_LOG_EMERG, pool->log, err,
@@ -429,6 +430,8 @@ static bool ngx_nacos_encode_hosts(pb_ostream_t *stream,
         instance.host.funcs.encode = ngx_nacos_data_pb_encode_str;
         instance.port = addr->port;
         instance.weight = addr->weight;
+        instance.cluster.arg = &addr[i].cluster;
+        instance.cluster.funcs.encode = ngx_nacos_data_pb_encode_str;
         if (!pb_encode_submessage(stream, Instance_fields, &instance)) {
             return false;
         }
@@ -437,11 +440,11 @@ static bool ngx_nacos_encode_hosts(pb_ostream_t *stream,
 }
 
 char *ngx_nacos_parse_addrs_from_json(ngx_nacos_resp_json_parser_t *parser) {
-    yajl_val json, arr, item, ip, port, ref, weight, enable, healthy;
+    yajl_val json, arr, item, ip, port, ref, weight, enable, healthy, cluster;
     size_t i, n;
     int is;
     ngx_log_t *log;
-    char *ts, *c;
+    char *ts, *c, *cs;
     Service service;
     ngx_nacos_service_addrs_t addrs;
     ngx_nacos_service_addr_t *addr;
@@ -490,9 +493,11 @@ char *ngx_nacos_parse_addrs_from_json(ngx_nacos_resp_json_parser_t *parser) {
         }
 
         ip = yajl_tree_get_field(item, "ip", yajl_t_string);
-        if (!ip) {
-            ngx_log_error(NGX_LOG_WARN, log, 0,
-                          "nacos response json hosts ip is not string");
+        cluster = yajl_tree_get_field(item, "clusterName", yajl_t_string);
+        if (!ip || !cluster) {
+            ngx_log_error(
+                NGX_LOG_WARN, log, 0,
+                "nacos response json hosts ip or cluster is not string");
             return NULL;
         }
         port = yajl_tree_get_field(item, "port", yajl_t_number);
@@ -502,6 +507,7 @@ char *ngx_nacos_parse_addrs_from_json(ngx_nacos_resp_json_parser_t *parser) {
             return NULL;
         }
         ts = YAJL_GET_STRING(ip);
+        cs = YAJL_GET_STRING(cluster);
         is = (int) YAJL_GET_INTEGER(port);
 
         weight = yajl_tree_get_field(item, "weight", yajl_t_number);
@@ -523,6 +529,8 @@ char *ngx_nacos_parse_addrs_from_json(ngx_nacos_resp_json_parser_t *parser) {
         }
         addr->host.data = (u_char *) ts;
         addr->host.len = strlen(ts);
+        addr->cluster.data = (u_char *) cs;
+        addr->cluster.len = strlen(cs);
         addr->port = is;
         addr->weight = (int32_t) w * 100;
     }
@@ -576,15 +584,20 @@ static bool ngx_nacos_pb_decode_str(pb_istream_t *stream,
 
 static bool ngx_nacos_decode_instances(pb_istream_t *stream,
                                        const pb_field_t *field, void **arg) {
-    struct ngx_pb_decode_ctx_t *ctx;
+    struct ngx_pb_decode_ctx_t *parent;
     ngx_array_t *addrs;
     ngx_nacos_service_addr_t *addr;
     Instance instance;
+    struct ngx_pb_decode_ctx_t host, cluster;
 
-    ctx = *arg;
-    addrs = ctx->arg;
-    instance.host.arg = ctx;
+    parent = *arg;
+    addrs = parent->arg;
+    host.pool = parent->pool;
+    cluster.pool = parent->pool;
+    instance.host.arg = &host;
     instance.host.funcs.decode = ngx_nacos_pb_decode_str;
+    instance.cluster.arg = &cluster;
+    instance.cluster.funcs.decode = ngx_nacos_pb_decode_str;
 
     addr = ngx_array_push(addrs);
     if (addr == NULL) {
@@ -592,13 +605,13 @@ static bool ngx_nacos_decode_instances(pb_istream_t *stream,
     }
     instance.port = 0;
     instance.weight = 0;
-    ctx->arg = &addr->host;
+    host.arg = &addr->host;
+    cluster.arg = &addr->cluster;
     if (!pb_decode(stream, Instance_fields, &instance)) {
         return false;
     }
     addr->weight = instance.weight;
     addr->port = instance.port;
-    ctx->arg = addrs;
     return true;
 }
 
