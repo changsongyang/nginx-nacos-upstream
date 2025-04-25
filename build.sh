@@ -18,7 +18,7 @@ patch -p1 < ../patch/nginx.patch
   --with-http_ssl_module \
   --add-module=../modules/auxiliary \
   --add-module=../modules/nacos \
-  --prefix=.. \
+  --prefix= \
   --conf-path=conf/my.conf \
   --error-log-path=objs/logs/error.log \
   --pid-path=objs/logs/nginx.pid \

@@ -1,33 +1,49 @@
 {
-	"version": "2.0.0",
-	"options": {
-		"cwd": "${workspaceFolder}/cmake-build-debug"
-	},
-	"tasks": [
-		{
-			"type": "shell",
-			"label": "cmake",
-			"command": "cmake",
-			"args": [
-				".."
-			]
-		},
-		{
-			"label": "make",
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			},
-			"command": "make",
-			"args": ["nginx_nacos"]
-		},
-		{
-			"label": "cmake build",
-			"dependsOn": [
-				"mkdir",
-				"cmake",
-				"make"
-			]
-		}
-	]
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}/cmake-build-debug"
+  },
+  "tasks": [
+    {
+      "label": "cmake",
+      "command": "cmake",
+      "args": [
+        "-DCMAKE_BUILD_TYPE=Debug",
+        ".."
+      ]
+    },
+    {
+      "label": "make",
+      "command": "make",
+      "args": [
+        "-j",
+        "4"
+      ]
+    },
+    {
+      "label": "cmake build",
+      "dependsOn": [
+        "cmake",
+        "make"
+      ]
+    },
+    {
+      "type": "process",
+      "command": "/usr/bin/env",
+      "args": [
+        "CC=clang",
+        "CFLAGS=-g -Wall",
+        "make",
+        "${fileBasenameNoExtension}"
+      ],
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "makelldb: selected file"
+    }
+  ]
 }
