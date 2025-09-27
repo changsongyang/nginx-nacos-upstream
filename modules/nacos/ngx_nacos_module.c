@@ -23,6 +23,10 @@ static ngx_int_t ngx_nacos_init_key_zone(ngx_shm_zone_t *zone, void *data);
 static ngx_int_t ngx_nacos_subscribe(ngx_conf_t *cf, ngx_nacos_sub_t *sub,
                                      int naming);
 
+// static char *ngx_nacos_conf_dynamic_service_key(ngx_conf_t *cf,
+//                                                 ngx_command_t *cmd, void
+//                                                 *conf);
+
 static ngx_core_module_t nacos_module = {
     ngx_string("nacos"),
     NULL,                // 解析配置文件之前执行
@@ -97,14 +101,14 @@ static ngx_command_t cmds[] = {
      NULL},
     {ngx_string("error_log"),
      NGX_NACOS_MAIN_CONF | NGX_DIRECT_CONF | NGX_CONF_1MORE,
-     ngx_nacos_conf_error_log, 0, 0, NULL
-
-    },
+     ngx_nacos_conf_error_log, 0, 0, NULL},
     {ngx_string("cache_dir"),
      NGX_NACOS_MAIN_CONF | NGX_DIRECT_CONF | NGX_CONF_1MORE,
-     ngx_conf_set_str_slot, 0, offsetof(ngx_nacos_main_conf_t, cache_dir), NULL
-
-    },
+     ngx_conf_set_str_slot, 0, offsetof(ngx_nacos_main_conf_t, cache_dir),
+     NULL},
+    // {ngx_string("dynamic_service_key"),
+    //  NGX_NACOS_MAIN_CONF | NGX_DIRECT_CONF | NGX_CONF_TAKE12,
+    //  ngx_nacos_conf_dynamic_service_key, 0, 0, NULL},
     ngx_null_command};
 
 ngx_module_t ngx_nacos_module = {NGX_MODULE_V1,
@@ -363,7 +367,6 @@ static char *ngx_nacos_conf_block(ngx_conf_t *cf, ngx_command_t *cmd,
 
     if (ngx_nacos_aux_init(cf) != NGX_OK) {
         rv = NGX_CONF_ERROR;
-        goto end;
     }
 
 end:
@@ -413,6 +416,53 @@ static char *ngx_nacos_conf_error_log(ngx_conf_t *cf, ngx_command_t *cmd,
     ngx_nacos_main_conf_t *mcf = conf;
     return ngx_log_set_log(cf, &mcf->error_log);
 }
+
+/** TODO dynamic  subscribe/unsubscribe service or config
+static char *ngx_nacos_conf_dynamic_service_key(ngx_conf_t *cf,
+                                                ngx_command_t *cmd,
+                                                void *conf) {
+    ngx_nacos_main_conf_t *mcf = conf;
+    ngx_nacos_sub_t sub;
+    ngx_str_t *value;
+    ngx_uint_t i, n;
+    ngx_int_t rc;
+
+    if (mcf->dy_svc_config_key != NULL) {
+        return "\"dynamic_service_key\" duplicated";
+    }
+
+    ngx_memzero(&sub, sizeof(sub));
+
+    value = cf->args->elts;
+    for (i = 1, n = cf->args->nelts; i < n; i++) {
+        if (value[i].len > 8 &&
+            ngx_strncmp(value[i].data, "data_id=", 8) == 0) {
+            sub.data_id.data = value[i].data + 8;
+            sub.data_id.len = value[i].len - 8;
+            continue;
+        }
+        if (value[i].len > 6 && ngx_strncmp(value[i].data, "group=", 6) == 0) {
+            sub.group.data = value[i].data + 6;
+            sub.group.len = value[i].len - 6;
+            continue;
+        }
+
+        return "\"dynamic_service_key\" is invalid, unknown parameter";
+    }
+    if (sub.group.len == 0) {
+        sub.group = mcf->default_group;
+    }
+    if (sub.data_id.len == 0 || sub.group.len == 0) {
+        return "\"dynamic_service_key\" is invalid, both \"data_id\" and "
+               "\"group\" are required";
+    }
+    sub.key_ptr = &mcf->dy_svc_config_key;
+    rc = ngx_nacos_subscribe_config(cf, &sub);
+    if (rc != NGX_OK) {
+        return "\"dynamic_service_key\" failed";
+    }
+    return NGX_CONF_OK;
+} */
 
 ngx_nacos_main_conf_t *ngx_nacos_get_main_conf(ngx_conf_t *cf) {
     return (ngx_nacos_main_conf_t *)

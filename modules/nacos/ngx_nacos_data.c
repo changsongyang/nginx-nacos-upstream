@@ -9,6 +9,20 @@
 #include <ngx_nacos_http_parse.h>
 #include <pb/pb_decode.h>
 #include <pb/pb_encode.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <iphlpapi.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <ifaddrs.h>
+#endif
 
 #define NACOS_SUB_RESP_BUF_SIZE (64 * 1024)
 
@@ -35,9 +49,14 @@ typedef struct {
 
 static ngx_int_t ngx_nacos_fetch_net_data_processor(
     ngx_nacos_http_parse_t *parser, void *ctx);
+
 static bool ngx_nacos_data_pb_encode_str(pb_ostream_t *stream,
                                          const pb_field_t *field,
                                          void *const *arg);
+
+static ngx_int_t ngx_nacos_fetch_access_token_process(
+    ngx_nacos_http_parse_t *parse, void *ctx);
+
 static ngx_int_t ngx_nacos_fetch_net_data_processor(
     ngx_nacos_http_parse_t *parser, void *ctx) {
     ngx_nacos_resp_json_parser_t resp_parser;
@@ -123,7 +142,8 @@ ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
                           "nacos %s cache file to write \"%V\" EOF",
                           ngx_write_fd_n, &filename);
             goto fail;
-        } else if (rd == -1) {
+        }
+        if (rd == -1) {
             err = ngx_errno;
             if (err == NGX_EINTR) {
                 continue;
@@ -139,6 +159,66 @@ ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
     return NGX_OK;
 fail:
     close(fd);
+    return NGX_ERROR;
+}
+
+static ngx_int_t ngx_nacos_fetch_access_token_process(
+    ngx_nacos_http_parse_t *parse, void *ctx) {
+    yajl_val json;
+    if (parse->json_parser != NULL) {
+        json = yajl_tree_finish_get(parse->json_parser);
+        return ngx_nacos_get_access_token_from_login_json(json, ctx);
+    }
+
+    return NGX_ERROR;
+}
+
+ngx_int_t ngx_nacos_fetch_access_token(ngx_nacos_main_conf_t *mcf,
+                                       ngx_nacos_login_info_t *li) {
+    ngx_str_t req_buf;
+    u_char data[512];
+
+    req_buf.data = data;
+    req_buf.len =
+        ngx_snprintf(data, sizeof(data) - 1,
+                     "POST /nacos/v1/auth/users/login HTTP/1.0\r\n"
+                     "Host: %V\r\n"
+                     "User-Agent: nacos-nginx-plugin-v2.10.0\r\n"
+                     "Content-Type: application/x-www-form-urlencoded\r\n"
+                     "Content-Length: %uz\r\n"
+                     "Connection: close\r\n"
+                     "\r\n%V",
+                     &mcf->server_host, li->login_body.len, &li->login_body) -
+        data;
+    return ngx_nacos_http_req_json_sync(
+        mcf, &req_buf, ngx_nacos_fetch_access_token_process, li);
+}
+
+ngx_int_t ngx_nacos_get_access_token_from_login_json(
+    yajl_val json, ngx_nacos_login_info_t *li) {
+    yajl_val token, ttl;
+    size_t len;
+    char *t;
+
+    if (json == NULL) {
+        return NGX_ERROR;
+    }
+
+    token = yajl_tree_get_field(json, "accessToken", yajl_t_string);
+    ttl = yajl_tree_get_field(json, "tokenTtl", yajl_t_number);
+    if (token != NULL && ttl != NULL) {
+        t = YAJL_GET_STRING(token);
+
+        if (t == NULL || (len = ngx_strlen(t)) > li->token_buf_size) {
+            return NGX_ERROR;
+        }
+
+        ngx_memcpy(li->token.data, t, len);
+        li->token.len = len;
+        li->token_expire_time =
+            ngx_max(10, YAJL_GET_INTEGER(ttl) * 9 / 10) * 1000;
+        return NGX_OK;
+    }
     return NGX_ERROR;
 }
 
@@ -215,7 +295,8 @@ ngx_int_t ngx_nacos_fetch_disk_data(ngx_nacos_main_conf_t *mcf,
                           "nacos %s cache file \"%V\" ERROR", ngx_read_fd_n,
                           &filename);
             goto err_read;
-        } else if (rd == 0) {
+        }
+        if (rd == 0) {
             ngx_log_error(NGX_LOG_EMERG, pool->log, 0,
                           "nacos %s cache file \"%V\" EOF", ngx_read_fd_n,
                           &filename);
@@ -736,4 +817,82 @@ unlock:
     }
 
     return rc;
+}
+
+/**
+ * 查找第一个非回环IPv4地址
+ * @return 非回环IPv4地址字符串，需要调用者释放内存，如果未找到则返回NULL
+ */
+char *find_first_non_loopback_address() {
+#ifdef _WIN32
+    PMIB_IPADDRTABLE pIPAddrTable;
+    DWORD dwSize = 0;
+    DWORD dwRetVal = 0;
+    IN_ADDR IPAddr;
+    char *result = NULL;
+
+    pIPAddrTable = (MIB_IPADDRTABLE *) malloc(sizeof(MIB_IPADDRTABLE));
+    if (pIPAddrTable) {
+        if (GetIpAddrTable(pIPAddrTable, &dwSize, 0) ==
+            ERROR_INSUFFICIENT_BUFFER) {
+            free(pIPAddrTable);
+            pIPAddrTable = (MIB_IPADDRTABLE *) malloc(dwSize);
+        }
+    }
+
+    if (pIPAddrTable) {
+        if ((dwRetVal = GetIpAddrTable(pIPAddrTable, &dwSize, 0)) == NO_ERROR) {
+            for (int i = 0; i < (int) pIPAddrTable->dwNumEntries; i++) {
+                // 检查是否为IPv4地址且不是回环地址
+                if ((pIPAddrTable->table[i].dwAddr & 0xFF) !=
+                    0x7F) {  // 不是127.x.x.x
+                    IPAddr.S_un.S_addr = (u_long) pIPAddrTable->table[i].dwAddr;
+                    result = _strdup(inet_ntoa(IPAddr));
+                    break;
+                }
+            }
+        }
+        free(pIPAddrTable);
+    }
+    return result;
+#else
+    struct ifaddrs *ifaddrs_ptr, *ifa;
+    char *result = NULL;
+
+    if (getifaddrs(&ifaddrs_ptr) == -1) {
+        return NULL;
+    }
+
+    for (ifa = ifaddrs_ptr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) continue;
+
+        // 检查接口是否启用且为IPv4地址
+        if ((ifa->ifa_flags & IFF_UP) && ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in *addr = (struct sockaddr_in *) ifa->ifa_addr;
+
+            // 检查是否不是回环地址
+            if ((ntohl(addr->sin_addr.s_addr) & 0xFF000000) != 0x7F000000) {
+                result = strdup(inet_ntoa(addr->sin_addr));
+                break;
+            }
+        }
+    }
+
+    freeifaddrs(ifaddrs_ptr);
+    return result;
+#endif
+}
+
+ngx_int_t ngx_nacos_fetch_local_ip(ngx_nacos_main_conf_t *mcf, ngx_pool_t *pool) {
+    char *addr = find_first_non_loopback_address();
+    if (addr == NULL) {
+        return NGX_ERROR;
+    }
+
+    mcf->local_ip.len = ngx_strlen(addr);
+    mcf->local_ip.data = ngx_palloc(pool, mcf->local_ip.len + 1);
+    ngx_memcpy(mcf->local_ip.data, addr, mcf->local_ip.len);
+    mcf->local_ip.data[mcf->local_ip.len] = '\0';
+    free(addr);
+    return NGX_OK;
 }

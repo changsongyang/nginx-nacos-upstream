@@ -5,3 +5,4 @@
 /build
 /nginx*
 /CMakeCache.txt
+/logs

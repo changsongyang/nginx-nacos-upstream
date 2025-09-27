@@ -12,210 +12,38 @@
 #include <pb/pb_encode.h>
 #include <yaij/api/yajl_gen.h>
 #include <yaij/api/yajl_tree.h>
-
-typedef struct ngx_nacos_grpc_stream_s ngx_nacos_grpc_stream_t;
-typedef struct ngx_nacos_grpc_conn_s ngx_nacos_grpc_conn_t;
-typedef struct ngx_nacos_grpc_buf_s ngx_nacos_grpc_buf_t;
-
-typedef ngx_int_t (*grpc_buf_callback)(ngx_nacos_grpc_stream_t *s,
-                                       ngx_int_t state);
-
-struct ngx_nacos_grpc_buf_s {
-    ngx_nacos_grpc_stream_t *stream;
-    grpc_buf_callback callback;
-    ngx_nacos_grpc_buf_t *next;
-    u_char *b;
-    size_t cap;
-    size_t len;
-    size_t consume_win;
-};
-
-typedef struct {
-    ngx_nacos_grpc_buf_t *head;
-    ngx_nacos_grpc_buf_t *tail;
-} ngx_nacos_grpc_bufs_t;
-
-struct ngx_nacos_grpc_conn_s {
-    ngx_connection_t *conn;
-    ngx_pool_t *pool;
-    uint32_t next_stream_id;
-    enum {
-        init,
-        connecting,
-        prepare_conn,
-        waiting_conn_prepared,
-        prepare_subscribe,
-        subscribing_config,
-        subscribing_service,
-        subscribed
-    } stat;
-    ngx_peer_connection_t peer;
-    ngx_nacos_grpc_stream_t *m_stream;
-    ngx_rbtree_t st_tree;
-    ngx_rbtree_node_t st_sentinel;
-    ngx_queue_t all_streams;
-    ngx_queue_t io_blocking_list;
-    ngx_queue_t conn_win_blocking_list;
-    struct {
-        ngx_uint_t header_table_size;
-        ngx_uint_t max_conn_streams;
-        ngx_uint_t init_window_size;
-        ngx_uint_t max_frame_size;
-        ngx_uint_t max_header_list_size;
-    } settings;
-    ngx_buf_t *read_buf;
-    ngx_uint_t heartbeat;
-    enum { parse_frame_header = 0, parse_frame_payload } parse_stat;
-    size_t frame_size;
-    ngx_uint_t frame_stream_id;
-    u_char frame_type;
-    u_char frame_flags;
-    unsigned frame_start : 1;
-    unsigned frame_end : 1;
-};
-
-enum ngx_nacos_payload_type {
-    NONE__START = 0, /* unknown */
-    ClientDetectionRequest,
-    ConnectionSetupRequest,
-    ConnectResetRequest,
-    HealthCheckRequest,
-    PushAckRequest,
-    ServerCheckRequest,
-    ServerLoaderInfoRequest,
-    ServerReloadRequest,
-    BatchInstanceRequest,
-    NotifySubscriberRequest,
-    ServiceListRequest,
-    ServiceQueryRequest,
-    SubscribeServiceRequest,
-    ConfigBatchListenRequest,
-    ConfigChangeNotifyRequest,
-    ConfigQueryRequest,
-    /* response */
-    ClientDetectionResponse,
-    ConnectResetResponse,
-    ErrorResponse,
-    HealthCheckResponse,
-    ServerCheckResponse,
-    ServerLoaderInfoResponse,
-    ServerReloadResponse,
-    BatchInstanceResponse,
-    NotifySubscriberResponse,
-    QueryServiceResponse,
-    ServiceListResponse,
-    SubscribeServiceResponse,
-    ConfigChangeBatchListenResponse,
-    ConfigChangeNotifyResponse,
-    ConfigQueryResponse,
-    NONE__END
-};
+#include <assert.h>
 
 static struct {
     ngx_str_t type_name;
     enum ngx_nacos_payload_type payload_type;
 } payload_type_mapping[] = {
-    {ngx_string("NONE__START"), NONE__START},
-    {ngx_string("ClientDetectionRequest"), ClientDetectionRequest},
-    {ngx_string("ConnectionSetupRequest"), ConnectionSetupRequest},
-    {ngx_string("ConnectResetRequest"), ConnectResetRequest},
-    {ngx_string("HealthCheckRequest"), HealthCheckRequest},
-    {ngx_string("PushAckRequest"), PushAckRequest},
-    {ngx_string("ServerCheckRequest"), ServerCheckRequest},
-    {ngx_string("ServerLoaderInfoRequest"), ServerLoaderInfoRequest},
-    {ngx_string("ServerReloadRequest"), ServerReloadRequest},
-    {ngx_string("BatchInstanceRequest"), BatchInstanceRequest},
-    {ngx_string("NotifySubscriberRequest"), NotifySubscriberRequest},
-    {ngx_string("ServiceListRequest"), ServiceListRequest},
-    {ngx_string("ServiceQueryRequest"), ServiceQueryRequest},
-    {ngx_string("SubscribeServiceRequest"), SubscribeServiceRequest},
-    {ngx_string("ConfigBatchListenRequest"), ConfigBatchListenRequest},
-    {ngx_string("ConfigChangeNotifyRequest"), ConfigChangeNotifyRequest},
-    {ngx_string("ConfigQueryRequest"), ConfigQueryRequest},
-    /* response */
-    {ngx_string("ClientDetectionResponse"), ClientDetectionResponse},
-    {ngx_string("ConnectResetResponse"), ConnectResetResponse},
-    {ngx_string("ErrorResponse"), ErrorResponse},
-    {ngx_string("HealthCheckResponse"), HealthCheckResponse},
-    {ngx_string("ServerCheckResponse"), ServerCheckResponse},
-    {ngx_string("ServerLoaderInfoResponse"), ServerLoaderInfoResponse},
-    {ngx_string("ServerReloadResponse"), ServerReloadResponse},
-    {ngx_string("BatchInstanceResponse"), BatchInstanceResponse},
-    {ngx_string("NotifySubscriberResponse"), NotifySubscriberResponse},
-    {ngx_string("QueryServiceResponse"), QueryServiceResponse},
-    {ngx_string("ServiceListResponse"), ServiceListResponse},
-    {ngx_string("SubscribeServiceResponse"), SubscribeServiceResponse},
-    {ngx_string("ConfigChangeBatchListenResponse"),
-     ConfigChangeBatchListenResponse},
-    {ngx_string("ConfigChangeNotifyResponse"), ConfigChangeNotifyResponse},
-    {ngx_string("ConfigQueryResponse"), ConfigQueryResponse},
-    {ngx_string("NONE__END"), NONE__END}};
-
-typedef ngx_int_t (*stream_handler)(ngx_nacos_grpc_stream_t *st,
-                                    enum ngx_nacos_payload_type type,
-                                    yajl_val json);
-
-struct ngx_nacos_grpc_stream_s {
-    ngx_rbtree_node_t node;
-    ngx_queue_t queue;
-    ngx_pool_t *pool;
-    ngx_nacos_grpc_conn_t *conn;
-    size_t send_win;
-    size_t recv_win;
-    ngx_uint_t stream_id;
-    stream_handler stream_handler;
-    void *handler_ctx;
-    ngx_nacos_grpc_bufs_t non_block_bufs;
-    ngx_nacos_grpc_bufs_t block_bufs;
-    ngx_queue_t io_blocking;
-    ngx_queue_t conn_win_blocking;
-    ngx_buf_t *tmp_buf;
-    ngx_uint_t resp_status;
-    ngx_uint_t grpc_status;
-    size_t proto_len;
-    u_char padding;
-    u_char parsing_state;
-    unsigned header_sent : 1;
-    unsigned end_stream : 1;
-    unsigned end_header : 1;
-    unsigned resp_grpc_encode : 1;
-    unsigned long_live : 1;
-    unsigned send_buf_block : 1;
-    unsigned send_buf_block_conn : 1;
-    unsigned store_proto_size_buf : 1;
+#define PC(name) {ngx_string(#name), name},
+    PAYLOAD_TYPE_LIST
+#undef PC
 };
 
 #define NGX_NACOS_GRPC_DEFAULT_GRPC_STATUS 10000
 #define NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL 360000
 #define NGX_NACOS_GRPC_CONFIG_BATCH_SIZE 100
 
-struct ngx_nacos_grpc_ctx_s {
-    ngx_nacos_grpc_conn_t *gc;
-    ngx_nacos_main_conf_t *ncf;
-    ngx_event_t ev;
-    ngx_uint_t key_idx;
-    ngx_uint_t conf_key_idx;
-};
-
-static ngx_nacos_grpc_ctx_t grpc_ctx;
-
-static ngx_nacos_grpc_conn_t *ngx_nacos_open_grpc_conn(
-    ngx_nacos_main_conf_t *conf);
-
 static ngx_nacos_grpc_stream_t *ngx_nacos_grpc_create_stream(
     ngx_nacos_grpc_conn_t *gc);
 
-static void ngx_nacos_grpc_close_stream(ngx_nacos_grpc_stream_t *st);
-
 static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_alloc_buf(
-    ngx_nacos_grpc_stream_t *gc, size_t cap);
+    ngx_nacos_grpc_stream_t *st, size_t cap);
 
-#define ngx_nacos_grpc_free_buf(st, buf) ngx_free(buf)
+ngx_inline void ngx_nacos_grpc_free_buf(ngx_nacos_grpc_stream_t *st,
+                                        ngx_nacos_grpc_buf_t *buf) {
+    assert(st == buf->stream);
+    ngx_free(buf);
+    --st->buf_size;
+}
 
 static ngx_int_t ngx_nacos_grpc_send_buf(ngx_nacos_grpc_buf_t *buf,
                                          ngx_flag_t can_block);
 
-static ngx_int_t ngx_nacos_grpc_do_send(ngx_nacos_grpc_stream_t *st);
+static ngx_int_t ngx_nacos_grpc_do_send(ngx_nacos_grpc_conn_t *gc);
 
 // read buf. 128K. max frame
 #define READ_BUF_CAP (1 << 17)
@@ -234,8 +62,6 @@ static u_char ngx_nacos_grpc_connection_start[] =
 
 static void ngx_nacos_grpc_event_handler(ngx_event_t *ev);
 
-static void ngx_nacos_grpc_ctl_handler(ngx_event_t *ev);
-
 static ngx_int_t ngx_nacos_grpc_write_handler(ngx_nacos_grpc_conn_t *gc,
                                               ngx_event_t *ev);
 
@@ -243,9 +69,6 @@ static ngx_int_t ngx_nacos_grpc_read_handler(ngx_nacos_grpc_conn_t *gc,
                                              ngx_event_t *ev);
 
 static ngx_int_t ngx_nacos_grpc_send_conn_start(ngx_nacos_grpc_stream_t *st);
-
-static void ngx_nacos_grpc_close_connection(ngx_nacos_grpc_conn_t *gc,
-                                            ngx_int_t status);
 
 static ngx_int_t ngx_nacos_grpc_parse_frame(ngx_nacos_grpc_conn_t *gc);
 
@@ -275,8 +98,8 @@ static ngx_int_t ngx_nacos_grpc_update_send_window(ngx_nacos_grpc_conn_t *gc,
                                                    ngx_uint_t st_id,
                                                    ngx_uint_t win_update);
 
-static ngx_int_t ngx_nacos_grpc_send_blocking_buf(ngx_nacos_grpc_conn_t *gc,
-                                                  ngx_nacos_grpc_stream_t *st);
+static void ngx_nacos_grpc_consume_sending_buf(
+    ngx_nacos_grpc_stream_t *st, ngx_nacos_grpc_bufs_t *target_bufs);
 
 static ngx_int_t ngx_nacos_grpc_parse_proto_msg(ngx_nacos_grpc_stream_t *st,
                                                 ngx_str_t *proto_msg);
@@ -284,26 +107,8 @@ static ngx_int_t ngx_nacos_grpc_parse_proto_msg(ngx_nacos_grpc_stream_t *st,
 static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_encode_request(
     ngx_nacos_grpc_stream_t *st, ngx_str_t *mtd);
 
-static ngx_int_t ngx_nacos_grpc_send_subscribe_request(
-    ngx_nacos_grpc_conn_t *gc);
-
 static ngx_int_t ngx_nacos_grpc_decode_ule128(u_char **pp, const u_char *last,
                                               size_t *result);
-
-static ngx_int_t ngx_nacos_mark_conn_subscribe(ngx_nacos_grpc_stream_t *st,
-                                               ngx_int_t state);
-
-static ngx_int_t ngx_nacos_grpc_mark_query_config(ngx_nacos_grpc_stream_t *st,
-                                                  ngx_int_t state);
-
-static ngx_int_t ngx_nacos_grpc_do_subscribe_service_items(
-    ngx_nacos_grpc_conn_t *gc);
-
-static ngx_int_t ngx_nacos_grpc_do_subscribe_config_items(
-    ngx_nacos_grpc_conn_t *gc);
-
-static ngx_int_t ngx_nacos_grpc_mark_subscribe_items(
-    ngx_nacos_grpc_stream_t *st, ngx_int_t state);
 
 static bool ngx_nacos_grpc_pb_decode_str(pb_istream_t *stream,
                                          const pb_field_t *field, void **arg);
@@ -332,14 +137,14 @@ typedef struct {
     ngx_str_t json;
     Payload payload;
     size_t encoded_len;
-    u_char *buf;
+    ngx_nacos_grpc_buf_t *buf;
 } ngx_nacos_grpc_payload_encode_t;
 
 static ngx_int_t ngx_nacos_grpc_encode_payload_init(
-    ngx_nacos_grpc_payload_encode_t *en);
+    ngx_nacos_grpc_payload_encode_t *en, ngx_nacos_grpc_stream_t *st);
 
 static ngx_int_t ngx_nacos_grpc_encode_payload(
-    ngx_nacos_grpc_payload_encode_t *en);
+    const ngx_nacos_grpc_payload_encode_t *en, ngx_nacos_grpc_stream_t *st);
 
 static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_encode_data_msg(
     ngx_nacos_grpc_stream_t *st, ngx_nacos_grpc_payload_encode_t *en,
@@ -350,47 +155,11 @@ typedef struct {
     Payload result;
     ngx_str_t type;
     ngx_str_t out_json;
-    yajl_val json;
-    enum ngx_nacos_payload_type payload_type;
+    ngx_nacos_payload_t payload;
 } ngx_nacos_grpc_payload_decode_t;
 
 static ngx_int_t ngx_nacos_grpc_decode_payload(
     ngx_nacos_grpc_stream_t *st, ngx_nacos_grpc_payload_decode_t *de);
-
-static void ngx_nacos_grpc_decode_payload_destroy(
-    ngx_nacos_grpc_payload_decode_t *de);
-
-static ngx_flag_t ngx_nacos_grpc_payload_is_response_ok(
-    enum ngx_nacos_payload_type payload_type, yajl_val root);
-
-static ngx_int_t ngx_nacos_grpc_send_server_push_resp(
-    ngx_nacos_grpc_stream_t *st, yajl_val json, const char *resp_type);
-
-static ngx_int_t ngx_nacos_grpc_notify_address_shm(ngx_nacos_grpc_conn_t *gc,
-                                                   yajl_val json);
-
-static ngx_int_t ngx_nacos_grpc_notify_config_shm(ngx_nacos_grpc_stream_t *st,
-                                                  yajl_val json);
-
-static ngx_int_t ngx_nacos_grpc_config_change_notified(
-    ngx_nacos_grpc_conn_t *gc, yajl_val root);
-
-static ngx_int_t ngx_nacos_grpc_send_config_query_request(
-    ngx_nacos_grpc_conn_t *gc, ngx_nacos_key_t *key);
-
-static ngx_int_t ngx_nacos_grpc_subscribe_response_handler(
-    ngx_nacos_grpc_stream_t *st, enum ngx_nacos_payload_type payload_type,
-    yajl_val json);
-
-static ngx_int_t ngx_nacos_grpc_service_sub_event_resp_handler(
-    ngx_nacos_grpc_stream_t *st, enum ngx_nacos_payload_type type,
-    yajl_val json);
-
-static ngx_int_t ngx_nacos_grpc_config_change_deal(ngx_nacos_grpc_stream_t *st,
-                                                   yajl_val root);
-static ngx_int_t ngx_nacos_grpc_config_query_resp_handler(
-    ngx_nacos_grpc_stream_t *st, enum ngx_nacos_payload_type type,
-    yajl_val json);
 
 static ngx_int_t ngx_nacos_grpc_realloc_tmp_buf(ngx_nacos_grpc_stream_t *st,
                                                 size_t asize);
@@ -399,6 +168,9 @@ static ngx_int_t ngx_nacos_grpc_send_win_update_frame(
     ngx_nacos_grpc_stream_t *st, size_t win_update);
 
 static ngx_int_t ngx_nacos_send_ping_frame(ngx_nacos_grpc_conn_t *gc);
+
+static bool ngx_nacos_grpc_pb_write_buf(pb_ostream_t *stream,
+                                        const pb_byte_t *buf, size_t count);
 
 static ngx_str_t http2_err[] = {
     ngx_string("NO_ERROR(0L)"),
@@ -430,27 +202,15 @@ static const ngx_nacos_grpc_frame_handler frame_handlers[] = {
     ngx_nacos_grpc_parse_window_update_frame,
     ngx_nacos_grpc_parse_header_frame};
 
-ngx_nacos_grpc_ctx_t *ngx_nacos_open_grpc_ctx(ngx_nacos_main_conf_t *ncf) {
-    grpc_ctx.gc = ngx_nacos_open_grpc_conn(ncf);
-    if (grpc_ctx.gc == NULL) {
-        return NULL;
-    }
-
-    grpc_ctx.ncf = ncf;
-    grpc_ctx.ev.log = ncf->error_log;
-    grpc_ctx.ev.handler = ngx_nacos_grpc_ctl_handler;
-    return &grpc_ctx;
-}
-
-static ngx_nacos_grpc_conn_t *ngx_nacos_open_grpc_conn(
-    ngx_nacos_main_conf_t *ncf) {
+ngx_nacos_grpc_conn_t *ngx_nacos_open_grpc_conn(ngx_nacos_main_conf_t *conf,
+                                                nc_grpc_event_handler handler) {
     ngx_connection_t *c;
     ngx_nacos_grpc_conn_t *gc;
     ngx_pool_t *pool;
     ngx_uint_t try;
     ngx_int_t rc;
 
-    pool = ngx_create_pool(ncf->udp_pool_size, ncf->error_log);
+    pool = ngx_create_pool(conf->udp_pool_size, conf->error_log);
     if (pool == NULL) {
         return NULL;
     }
@@ -460,23 +220,23 @@ static ngx_nacos_grpc_conn_t *ngx_nacos_open_grpc_conn(
         ngx_destroy_pool(pool);
         return NULL;
     }
+    gc->handler = handler;
+    gc->nmcf = conf;
     gc->read_buf = ngx_create_temp_buf(pool, READ_BUF_CAP);
     if (gc->read_buf == NULL) {
         ngx_destroy_pool(pool);
         return NULL;
     }
 
-    ngx_queue_init(&gc->io_blocking_list);
-    ngx_queue_init(&gc->conn_win_blocking_list);
     ngx_queue_init(&gc->all_streams);
     ngx_rbtree_init(&gc->st_tree, &gc->st_sentinel, ngx_rbtree_insert_value);
 
     gc->peer.start_time = ngx_current_msec;
     gc->peer.log_error = NGX_ERROR_INFO;
-    gc->peer.log = ncf->error_log;
+    gc->peer.log = conf->error_log;
     gc->peer.get = ngx_nacos_aux_get_addr;
     gc->peer.free = ngx_nacos_aux_free_addr;
-    gc->peer.data = &ncf->grpc_server_list;
+    gc->peer.data = &conf->grpc_server_list;
 
     try = 0;
 
@@ -491,7 +251,7 @@ connect:
         if (gc->peer.sockaddr) {
             gc->peer.free(&gc->peer, gc->peer.data, NGX_ERROR);
         }
-        if (try < ncf->server_list.nelts) {
+        if (try < conf->server_list.nelts) {
             goto connect;
         }
         goto connect_failed;
@@ -516,7 +276,6 @@ connect:
         return gc;
     }
 
-    gc->stat = prepare_conn;
     // rc == NGX_OK
     rc = ngx_nacos_grpc_write_handler(gc, c->write);
     if (rc == NGX_OK || rc == NGX_AGAIN) {
@@ -530,12 +289,64 @@ connect_failed:
     return NULL;
 }
 
-static void ngx_nacos_grpc_ctl_handler(ngx_event_t *ev) {
-    grpc_ctx.gc = ngx_nacos_open_grpc_conn(grpc_ctx.ncf);
-    grpc_ctx.key_idx = 0;
-    if (grpc_ctx.gc == NULL) {
-        ngx_add_timer(&grpc_ctx.ev, 5000);
+static ngx_nacos_grpc_stream_t *ngx_nacos_grpc_request_internal(
+    ngx_nacos_grpc_conn_t *conn, ngx_str_t *req, stream_handler handler) {
+    ngx_nacos_grpc_buf_t *hbuf = NULL;
+    ngx_nacos_grpc_stream_t *st;
+
+    st = ngx_nacos_grpc_create_stream(conn);
+    if (st == NULL) {
+        goto err;
     }
+
+    st->stream_handler = handler;
+    hbuf = ngx_nacos_grpc_encode_request(st, req);
+    if (hbuf == NULL) {
+        goto err;
+    }
+    hbuf->sent_header = 1;
+    if (ngx_nacos_grpc_send_buf(hbuf, 1) != NGX_OK) {
+        goto err;
+    }
+    return st;
+err:
+    if (hbuf != NULL) {
+        ngx_nacos_grpc_free_buf(st, hbuf);
+    }
+    if (st != NULL) {
+        ngx_nacos_grpc_close_stream(st, 1);
+    }
+    return NULL;
+}
+
+ngx_nacos_grpc_stream_t *ngx_nacos_grpc_request(ngx_nacos_grpc_conn_t *conn,
+                                                stream_handler handler) {
+    ngx_str_t req;
+    ngx_str_set(&req, "/Request/request");
+    return ngx_nacos_grpc_request_internal(conn, &req, handler);
+}
+
+ngx_nacos_grpc_stream_t *ngx_nacos_grpc_bi_request(ngx_nacos_grpc_conn_t *conn,
+                                                   stream_handler handler) {
+    ngx_str_t req;
+    ngx_str_set(&req, "/BiRequestStream/requestBiStream");
+    return ngx_nacos_grpc_request_internal(conn, &req, handler);
+}
+
+ngx_int_t ngx_nacos_grpc_send(ngx_nacos_grpc_stream_t *st,
+                              ngx_nacos_payload_t *p) {
+    ngx_nacos_grpc_buf_t *bbuf;
+
+    ngx_nacos_grpc_payload_encode_t en;
+
+    en.type = payload_type_mapping[p->type].type_name;
+    en.json = p->json_str;
+    bbuf = ngx_nacos_grpc_encode_data_msg(st, &en, p->end);
+    if (bbuf == NULL) {
+        return NGX_ERROR;
+    }
+
+    return ngx_nacos_grpc_send_buf(bbuf, 1);
 }
 
 static void ngx_nacos_grpc_event_handler(ngx_event_t *ev) {
@@ -560,16 +371,13 @@ static void ngx_nacos_grpc_event_handler(ngx_event_t *ev) {
     if (rc == NGX_ERROR || rc == NGX_DONE) {
         ngx_nacos_grpc_close_connection(
             gc, rc == NGX_ERROR ? NGX_NC_ERROR : NGX_NC_TIRED);
-        ngx_add_timer(&grpc_ctx.ev, 3000);
     }
 }
 
 static ngx_int_t ngx_nacos_grpc_write_handler(ngx_nacos_grpc_conn_t *gc,
                                               ngx_event_t *ev) {
-    ngx_queue_t *node;
     int err;
     socklen_t len;
-    ngx_int_t rc;
     ngx_connection_t *c = gc->peer.connection;
 
     if (ev->timedout) {
@@ -577,15 +385,7 @@ static ngx_int_t ngx_nacos_grpc_write_handler(ngx_nacos_grpc_conn_t *gc,
         if (gc->stat == connecting) {
             return NGX_ERROR;
         }
-        if (gc->stat == subscribing_config) {
-            if (ngx_nacos_grpc_do_subscribe_config_items(gc) == NGX_ERROR) {
-                return NGX_ERROR;
-            }
-        } else if (gc->stat == subscribing_service) {
-            if (ngx_nacos_grpc_do_subscribe_service_items(gc) == NGX_ERROR) {
-                return NGX_ERROR;
-            }
-        } else if (gc->stat == subscribed) {
+        if (gc->stat == working) {
             // send ping.
             if (ngx_nacos_send_ping_frame(gc) == NGX_ERROR) {
                 return NGX_ERROR;
@@ -613,29 +413,21 @@ static ngx_int_t ngx_nacos_grpc_write_handler(ngx_nacos_grpc_conn_t *gc,
             return NGX_ERROR;
         }
 
-        ngx_log_debug0(NGX_LOG_DEBUG_CORE, c->log, 0,
+        ngx_log_debug0(NGX_LOG_DEBUG_CORE, gc->conn->log, 0,
                        "http connection connect successfully");
-        gc->stat = prepare_conn;
+        gc->stat = prepare_grpc;
     }
 
-    if (gc->stat == prepare_conn) {
+    if (gc->stat == prepare_grpc && gc->m_stream == NULL) {
         gc->m_stream = ngx_nacos_grpc_create_stream(gc);
         if (gc->m_stream == NULL) {
             return NGX_ERROR;
         }
-        gc->stat = waiting_conn_prepared;
         return ngx_nacos_grpc_send_conn_start(gc->m_stream);
     }
 
     if (ev->ready) {
-        while (!ngx_queue_empty(&gc->io_blocking_list)) {
-            node = ngx_queue_head(&gc->io_blocking_list);
-            rc = ngx_nacos_grpc_do_send(
-                ngx_queue_data(node, ngx_nacos_grpc_stream_t, io_blocking));
-            if (rc != NGX_OK) {
-                return rc;
-            }
-        }
+        return ngx_nacos_grpc_do_send(gc);
     }
 
     return NGX_OK;
@@ -645,7 +437,7 @@ static ngx_int_t ngx_nacos_grpc_read_handler(ngx_nacos_grpc_conn_t *gc,
                                              ngx_event_t *ev) {
     ssize_t rc;
 
-    if (gc->stat < waiting_conn_prepared) {
+    if (gc->stat < prepare_grpc) {
         // write handler 处理
         return NGX_OK;
     }
@@ -752,8 +544,7 @@ static ngx_nacos_grpc_stream_t *ngx_nacos_grpc_create_stream(
     if (gc->next_stream_id == 0) {
         pool = gc->pool;
     } else {
-        pool = ngx_create_pool(grpc_ctx.ncf->udp_pool_size,
-                               grpc_ctx.ncf->error_log);
+        pool = ngx_create_pool(gc->nmcf->udp_pool_size, gc->nmcf->error_log);
         if (pool == NULL) {
             return NULL;
         }
@@ -786,39 +577,42 @@ err:
     return NULL;
 }
 
-static void ngx_nacos_grpc_close_stream(ngx_nacos_grpc_stream_t *st) {
+void ngx_nacos_grpc_close_stream(ngx_nacos_grpc_stream_t *st,
+                                 ngx_flag_t force) {
     ngx_nacos_grpc_conn_t *gc;
-    ngx_nacos_grpc_buf_t *h, *t;
+    ngx_nacos_payload_t payload;
+    ngx_nacos_grpc_buf_t *h, *n;
 
     gc = st->conn;
     if (st == gc->m_stream) {
         return;
     }
 
-    if (st->header_sent && !st->end_stream) {
-        // TODO send abort frame
+    if (st->stream_handler) {
+        ngx_memzero(&payload, sizeof(payload));
+        payload.end = 1;
+        payload.type = NONE__END;
+        payload.msg_state = pl_error;
+        st->stream_handler(st, &payload);
+        st->stream_handler = NULL;
+    }
+
+    if (!force && st->header_sent && !st->end_stream) {
+        // TODO send reset frame
+    }
+
+    if (force) {
+        h = st->sending_bufs.head;
+        while (h != NULL) {
+            st->buf_size--;
+            n = h->next;
+            ngx_free(h);
+            h = n;
+        }
+    }
+
+    if (st->buf_size != 0) {
         return;
-    }
-
-    if (st->send_buf_block) {
-        ngx_queue_remove(&st->io_blocking);
-    }
-
-    if (st->send_buf_block_conn) {
-        ngx_queue_remove(&st->conn_win_blocking);
-    }
-
-    h = st->block_bufs.head;
-    while (h != NULL) {
-        t = h->next;
-        ngx_nacos_grpc_free_buf(h->stream, h);
-        h = t;
-    }
-    h = st->non_block_bufs.head;
-    while (h != NULL) {
-        t = h->next;
-        ngx_nacos_grpc_free_buf(h->stream, h);
-        h = t;
     }
 
     ngx_queue_remove(&st->queue);
@@ -851,27 +645,31 @@ static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_alloc_buf(
     if (buf == NULL) {
         return NULL;
     }
+
+    st->buf_size++;
+
     b = ((u_char *) buf) + sizeof(ngx_nacos_grpc_buf_t);
     buf->b = b;
     buf->stream = st;
-    buf->callback = NULL;
     buf->next = NULL;
     buf->cap = cap;
     buf->len = 0;
     buf->consume_win = 0;
+    buf->sent_header = buf->sent_request = 0;
     return buf;
 }
 
 static ngx_int_t ngx_nacos_grpc_send_buf(ngx_nacos_grpc_buf_t *buf,
                                          ngx_flag_t can_block) {
-    ngx_nacos_grpc_stream_t *st;
+    ngx_nacos_grpc_stream_t *st, *m_st;
     ngx_nacos_grpc_conn_t *gc;
     ngx_nacos_grpc_bufs_t *bufs;
 
     st = buf->stream;
     gc = st->conn;
+    m_st = gc->m_stream;
 
-    bufs = can_block ? &st->block_bufs : &st->non_block_bufs;
+    bufs = can_block && st != m_st ? &st->sending_bufs : &gc->io_sending_bufs;
     if (bufs->tail) {
         bufs->tail->next = buf;
     } else {
@@ -882,21 +680,25 @@ static ngx_int_t ngx_nacos_grpc_send_buf(ngx_nacos_grpc_buf_t *buf,
     }
     bufs->tail = buf;
 
-    if (ngx_nacos_grpc_send_blocking_buf(gc, st) == NGX_ERROR) {
+    if (can_block && st != m_st) {
+        ngx_nacos_grpc_consume_sending_buf(st, &m_st->sending_bufs);
+        ngx_nacos_grpc_consume_sending_buf(m_st, &gc->io_sending_bufs);
+    }
+
+    if (ngx_nacos_grpc_do_send(gc) == NGX_ERROR) {
         return NGX_ERROR;
     }
     return NGX_OK;
 }
 
 // return NGX_OK/NGX_AGAIN/NGX_ERROR
-static ngx_int_t ngx_nacos_grpc_do_send(ngx_nacos_grpc_stream_t *st) {
-    ngx_nacos_grpc_buf_t *h, *t;
+static ngx_int_t ngx_nacos_grpc_do_send(ngx_nacos_grpc_conn_t *gc) {
+    ngx_nacos_grpc_buf_t *h, *t, *n;
     ssize_t r;
-    ngx_nacos_grpc_conn_t *gc;
     ngx_connection_t *conn;
+    ngx_nacos_grpc_stream_t *st;
 
-    h = st->non_block_bufs.head;
-    gc = st->conn;
+    h = gc->io_sending_bufs.head;
     conn = gc->conn;
     r = NGX_OK;
 
@@ -907,80 +709,88 @@ static ngx_int_t ngx_nacos_grpc_do_send(ngx_nacos_grpc_stream_t *st) {
     do {
         r = conn->send(gc->conn, h->b, h->len);
         if (r == (ssize_t) h->len) {
-            if (h->callback) {
-                r = h->callback(st, NGX_OK);
-            } else {
-                r = NGX_OK;
-            }
-            t = h->next;
-            ngx_nacos_grpc_free_buf(h->stream, h);
-            h = t;
+            h = h->next;
+            r = NGX_OK;
         } else if (r > 0) {
             h->len -= r;
             h->b += r;
             r = NGX_AGAIN;
             break;
-        } else if (r != NGX_AGAIN) {  // NGX_ERROR
-            if (h->callback) {
-                (void) h->callback(st, NGX_ERROR);
-            }
-            t = h->next;
-            ngx_nacos_grpc_free_buf(h->stream, h);
-            h = t;
-            break;
         } else {
-            // NGX_AGAIN
             break;
         }
     } while (h != NULL);
-    st->non_block_bufs.head = h;
-    if (h == NULL) {
-        st->non_block_bufs.tail = NULL;
-        if (st->send_buf_block) {
-            st->send_buf_block = 0;
-            ngx_queue_remove(&st->io_blocking);
-        }
-    } else if (r == NGX_AGAIN && !st->send_buf_block) {
-        st->send_buf_block = 1;
-        ngx_queue_insert_tail(&gc->io_blocking_list, &st->io_blocking);
+
+    t = h;
+    h = gc->io_sending_bufs.head;
+    gc->io_sending_bufs.head = t;
+    if (t == NULL) {
+        gc->io_sending_bufs.tail = NULL;
     }
+
+    while (h != t) {
+        n = h->next;
+        st = h->stream;
+        if (h->sent_header) {
+            st->header_sent = 1;
+        }
+        if (h->sent_request) {
+            st->req_sent = 1;
+        }
+        ngx_nacos_grpc_free_buf(st, h);
+        if (st->buf_size == 0 && st->req_sent && st->end_stream) {
+            ngx_nacos_grpc_close_stream(h->stream, 0);
+        }
+        h = n;
+    }
+
     return r;
 }
 
-static void ngx_nacos_grpc_close_connection(ngx_nacos_grpc_conn_t *gc,
-                                            ngx_int_t status) {
-    ngx_nacos_grpc_buf_t *h, *t;
+void ngx_nacos_grpc_close_connection(ngx_nacos_grpc_conn_t *gc,
+                                     ngx_int_t status) {
     ngx_queue_t *stq;
     ngx_nacos_grpc_stream_t *st;
+    ngx_nacos_grpc_buf_t *h, *n;
+
+    if (gc->handler) {
+        gc->handler(gc, nc_error);
+        gc->handler = NULL;
+    }
 
     if (gc->m_stream) {
         st = gc->m_stream;
-        if (st->send_buf_block) {
-            ngx_queue_remove(&st->io_blocking);
-        }
-        h = st->block_bufs.head;
-        while (h != NULL) {
-            t = h->next;
-            ngx_nacos_grpc_free_buf(h->stream, h);
-            h = t;
-        }
-        h = st->non_block_bufs.head;
-        while (h != NULL) {
-            t = h->next;
-            ngx_nacos_grpc_free_buf(h->stream, h);
-            h = t;
-        }
         ngx_queue_remove(&st->queue);
         ngx_rbtree_delete(&gc->st_tree, &st->node);
+
+        h = st->sending_bufs.head;
+        st->sending_bufs.head = NULL;
+        st->sending_bufs.tail = NULL;
+        while (h != NULL) {
+            n = h->next;
+            st = h->stream;
+            st->buf_size--;
+            ngx_free(h);
+            h = n;
+        }
     }
 
-    for (;;) {
-        if (ngx_queue_empty(&gc->all_streams)) {
-            break;
-        }
+    h = gc->io_sending_bufs.head;
+    while (h != NULL) {
+        n = h->next;
+        st = h->stream;
+        st->buf_size--;
+        ngx_free(h);
+        h = n;
+    }
+
+    h = gc->io_sending_bufs.head = NULL;
+    h = gc->io_sending_bufs.tail = NULL;
+
+    while (!(ngx_queue_empty(&gc->all_streams))) {
         stq = ngx_queue_last(&gc->all_streams);
         st = ngx_queue_data(stq, ngx_nacos_grpc_stream_t, queue);
-        ngx_nacos_grpc_close_stream(st);
+        ngx_nacos_grpc_close_stream(st, 1);
     }
 
     ngx_close_connection(gc->conn);
@@ -1149,21 +959,21 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
     }
 
     if (rc == NGX_OK && gc->frame_end && !st->end_stream &&
-        st->recv_win < 65536) {
-        if (ngx_nacos_grpc_send_win_update_frame(st, 20 * 1024 * 1024) ==
+        st->recv_win < 1024 * 1024) {
+        if (ngx_nacos_grpc_send_win_update_frame(st, 512 * 1024 * 1024) ==
             NGX_ERROR) {
             return NGX_ERROR;
         }
     }
 
-    if (gc->frame_end && gc->m_stream->recv_win < 65535) {
+    if (gc->frame_end && gc->m_stream->recv_win < 5 * 1024 * 1024) {
         if (ngx_nacos_grpc_send_win_update_frame(
-                gc->m_stream, 20 * 1024 * 1024) == NGX_ERROR) {
+                gc->m_stream, 500 * 1024 * 1024) == NGX_ERROR) {
             return NGX_ERROR;
         }
     }
     if (st->end_stream) {
-        ngx_nacos_grpc_close_stream(st);
+        ngx_nacos_grpc_close_stream(st, 0);
     }
     return rc;
 }
@@ -1181,23 +991,29 @@ static ngx_int_t ngx_nacos_grpc_parse_proto_msg(ngx_nacos_grpc_stream_t *st,
             rc = ngx_nacos_grpc_decode_payload(st, &de);
 
             if (rc == NGX_OK) {
-                rc = st->stream_handler(st, de.payload_type, de.json);
-                if (rc != NGX_OK) {
+                rc = st->stream_handler(st, &de.payload);
+                if (rc != NGX_OK && rc != NGX_DONE) {
                     ngx_log_error(
                         NGX_LOG_WARN, st->conn->conn->log, 0,
                         "receive nacos proto msg [%V]:[%d] when receiving: %V",
                         &de.type, rc, &de.out_json);
                 }
             } else {
-                rc = st->stream_handler(st, NONE__END, NULL);
+                ngx_memzero(&de.payload, sizeof(de.payload));
+                de.payload.type = NONE__END;
+                de.payload.msg_state = pl_error;
+                rc = st->stream_handler(st, &de.payload);
                 ngx_log_error(NGX_LOG_WARN, st->conn->conn->log, 0,
                               "decode proto msg error:[%d]", rc);
+            }
+
+            if (rc != NGX_OK) {
+                st->stream_handler = NULL;
             }
 
             if (rc != NGX_ERROR) {
                 rc = NGX_OK;
             }
-            ngx_nacos_grpc_decode_payload_destroy(&de);
         }
         return rc;
     }
@@ -1230,11 +1046,11 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
 
     st = ngx_nacos_grpc_find_stream(gc, gc->frame_stream_id);
     if (st == NULL) {
-        ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+        ngx_log_error(NGX_LOG_WARN, gc->conn->log, 0,
                       "nacos server sent header frame "
                       "unknown stream id: %uz",
                       gc->frame_stream_id);
-        return NGX_ERROR;
+        return NGX_OK;
     }
 
     b = gc->read_buf;
@@ -1534,21 +1350,55 @@ parse_header:
     }
 
     tb->pos = tb->last = tb->start;
-    st->end_stream = flags & HTTP_V2_END_STREAM_FLAG ? 1 : 0;
     st->parsing_state = 0;
     rc = NGX_OK;
-    if (st->end_stream) {
-        if (st->long_live && st->stream_handler) {
-            rc = st->stream_handler(st, NONE__END, NULL);
-        }
-        ngx_nacos_grpc_close_stream(st);
+    st->end_stream = flags & HTTP_V2_END_STREAM_FLAG ? 1 : 0;
+    if (st->end_stream && st->req_sent) {
+        ngx_nacos_grpc_close_stream(st, 0);
     }
 
     return rc;
 }
 
 static ngx_int_t ngx_nacos_grpc_parse_rst_frame(ngx_nacos_grpc_conn_t *gc) {
-    return NGX_OK;
+    ngx_nacos_grpc_stream_t *st;
+    ngx_int_t rc;
+    u_char *p;
+    ngx_uint_t reason;
+
+    rc = NGX_OK;
+    st = ngx_nacos_grpc_find_stream(gc, gc->frame_stream_id);
+    if (st == NULL) {
+        ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                      "nacos server sent rst frame "
+                      "unknown stream id: %uz",
+                      gc->frame_stream_id);
+        goto err;
+    }
+
+    if (gc->frame_size != 4) {
+        ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                      "nacos server sent rst frame "
+                      "invalid length: %uz",
+                      gc->frame_size);
+        return NGX_ERROR;
+    }
+
+    p = gc->read_buf->pos;
+    reason = (((size_t) p[0]) << 24) | ((size_t) p[1] << 16) |
+             ((size_t) p[2] << 8) | ((size_t) p[3]);
+    if (reason < sizeof(http2_err) / sizeof(http2_err[0])) {
+        ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                      "nacos server sent rst frame on %ud "
+                      "reason: %V",
+                      gc->frame_stream_id, &http2_err[reason]);
+    }
+
+    st->end_stream = 1;
+    rc = NGX_OK;
+err:
+    ngx_nacos_grpc_close_stream(st, 1);
+    return rc;
 }
 
 static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
@@ -1575,9 +1425,9 @@ static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
                           gc->frame_size);
             return NGX_ERROR;
         }
-        if (gc->stat == waiting_conn_prepared) {
-            gc->stat = prepare_subscribe;
-            if (ngx_nacos_grpc_send_subscribe_request(gc) == NGX_ERROR) {
+        if (gc->stat == prepare_grpc) {
+            gc->stat = working;
+            if (gc->handler(gc, nc_connected) != NGX_OK) {
                 return NGX_ERROR;
             }
         }
@@ -1792,14 +1642,14 @@ static ngx_int_t ngx_nacos_grpc_update_send_window(ngx_nacos_grpc_conn_t *gc,
                                                    ngx_uint_t st_id,
                                                    ngx_uint_t win_update) {
     ngx_nacos_grpc_stream_t *st;
-    ngx_queue_t *node;
     ngx_int_t rc;
 
+    rc = NGX_OK;
     st = ngx_nacos_grpc_find_stream(gc, st_id);
     if (st == NULL) {
-        ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+        ngx_log_error(NGX_LOG_WARN, gc->conn->log, 0,
                       "nacos server unknown frame id");
-        return NGX_ERROR;
+        return NGX_OK;
     }
 
     if (win_update > (size_t) HTTP_V2_MAX_WINDOW - st->send_win) {
@@ -1810,80 +1660,53 @@ static ngx_int_t ngx_nacos_grpc_update_send_window(ngx_nacos_grpc_conn_t *gc,
 
     st->send_win += win_update;
 
-    if (st != gc->m_stream) {
-        return ngx_nacos_grpc_send_blocking_buf(gc, st);
+    if (st->sending_bufs.head != NULL) {
+        if (st != gc->m_stream) {
+            ngx_nacos_grpc_consume_sending_buf(st, &gc->m_stream->sending_bufs);
+            st = gc->m_stream;
+        }
+        ngx_nacos_grpc_consume_sending_buf(st, &gc->io_sending_bufs);
+        rc = ngx_nacos_grpc_do_send(gc);
     }
 
-    rc = NGX_OK;
-    while (!ngx_queue_empty(&gc->conn_win_blocking_list)) {
-        node = ngx_queue_head(&gc->conn_win_blocking_list);
-        st = ngx_queue_data(node, ngx_nacos_grpc_stream_t, conn_win_blocking);
-        rc = ngx_nacos_grpc_send_blocking_buf(gc, st);
-        if (rc != NGX_OK) {
-            break;
-        }
-    }
     if (rc == NGX_AGAIN) {
         rc = NGX_OK;
     }
     return rc;
 }
 
-static ngx_int_t ngx_nacos_grpc_send_blocking_buf(ngx_nacos_grpc_conn_t *gc,
-                                                  ngx_nacos_grpc_stream_t *st) {
+static void ngx_nacos_grpc_consume_sending_buf(
+    ngx_nacos_grpc_stream_t *st, ngx_nacos_grpc_bufs_t *target_bufs) {
     ngx_nacos_grpc_buf_t *h, *t;
-    ngx_nacos_grpc_stream_t *mst;
-    int stream_block = 0, conn_block = 0;
+    ngx_flag_t stream_block;
 
-    mst = gc->m_stream;
-
-    h = st->block_bufs.head;
+    h = st->sending_bufs.head;
     if (h != NULL) {
         t = NULL;
         do {
             stream_block = st->send_win < h->consume_win;
-            conn_block = mst->send_win < h->consume_win;
-            if (stream_block == 0 && conn_block == 0) {
-                st->send_win -= h->consume_win;
-                mst->send_win -= h->consume_win;
-            } else {
+            if (stream_block) {
                 break;
             }
+            st->send_win -= h->consume_win;
             t = h;
             h = h->next;
         } while (h != NULL);
 
-        if (h != st->block_bufs.head) {
-            if (st->non_block_bufs.tail) {
-                st->non_block_bufs.tail->next = st->block_bufs.head;
+        if (h != st->sending_bufs.head) {
+            if (target_bufs->tail) {
+                target_bufs->tail->next = st->sending_bufs.head;
             } else {
-                st->non_block_bufs.head = st->block_bufs.head;
+                target_bufs->head = st->sending_bufs.head;
             }
-            st->non_block_bufs.tail = t;
+            target_bufs->tail = t;
 
             t->next = NULL;
-            st->block_bufs.head = h;
+            st->sending_bufs.head = h;
             if (h == NULL) {
-                st->block_bufs.tail = NULL;
+                st->sending_bufs.tail = NULL;
             }
         }
-    }
-    if (ngx_nacos_grpc_do_send(st) == NGX_ERROR) {
-        return NGX_ERROR;
-    }
-
-    if (conn_block == 0) {
-        if (st->send_buf_block_conn) {
-            st->send_buf_block_conn = 0;
-            ngx_queue_remove(&st->conn_win_blocking);
-        }
-        return NGX_OK;
-    } else {
-        if (st->send_buf_block_conn == 0) {
-            ngx_queue_insert_tail(&gc->conn_win_blocking_list,
-                                  &st->conn_win_blocking);
-        }
-        return NGX_AGAIN;
     }
 }
 
@@ -1937,295 +1760,6 @@ static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_encode_request(
     return buf;
 }
 
-#define SUB_SETUP_JSON                \
-    "{\"clientVersion\":\"v2.10.0\"," \
-    "\"abilities\":{},"               \
-    "\"labels\":{\"source\":\"sdk\",\"module\":\"naming\"}}"
-
-static ngx_int_t ngx_nacos_grpc_send_subscribe_request(
-    ngx_nacos_grpc_conn_t *gc) {
-    ngx_nacos_grpc_stream_t *st;
-    ngx_nacos_grpc_buf_t *hbuf, *bbuf;
-    ngx_str_t service;
-    ngx_nacos_grpc_payload_encode_t en;
-
-    st = NULL;
-    hbuf = NULL;
-    bbuf = NULL;
-
-    st = ngx_nacos_grpc_create_stream(gc);
-    if (st == NULL) {
-        goto err;
-    }
-    st->long_live = 1;
-
-    ngx_str_set(&service, "/BiRequestStream/requestBiStream");
-    hbuf = ngx_nacos_grpc_encode_request(st, &service);
-    if (hbuf == NULL) {
-        goto err;
-    }
-
-    ngx_str_set(&en.type, "ConnectionSetupRequest");
-    ngx_str_set(&en.json, SUB_SETUP_JSON);
-    bbuf = ngx_nacos_grpc_encode_data_msg(st, &en, 0);
-    if (bbuf == NULL) {
-        goto err;
-    }
-
-    hbuf->next = bbuf;
-    bbuf->callback = ngx_nacos_mark_conn_subscribe;
-    bbuf->consume_win = en.encoded_len + 5;
-    return ngx_nacos_grpc_send_buf(hbuf, 1);
-err:
-    if (bbuf != NULL) {
-        ngx_nacos_grpc_free_buf(gc, bbuf);
-    }
-    if (hbuf != NULL) {
-        ngx_nacos_grpc_free_buf(gc, hbuf);
-    }
-    if (st != NULL) {
-        ngx_nacos_grpc_close_stream(st);
-    }
-    return NGX_ERROR;
-}
-
-static ngx_int_t ngx_nacos_mark_conn_subscribe(ngx_nacos_grpc_stream_t *st,
-                                               ngx_int_t state) {
-    ngx_nacos_grpc_conn_t *gc;
-    if (state == NGX_OK) {
-        st->stream_handler = ngx_nacos_grpc_subscribe_response_handler;
-        gc = st->conn;
-        if (gc->stat == prepare_subscribe) {
-            gc->stat = subscribing_config;
-            ngx_add_timer(gc->conn->write, 1000);
-        }
-    }
-    return state;
-}
-
-#define SUBSCRIBE_JSON_FMT    \
-    "{\"headers\":{},"        \
-    "\"namespace\":\"%V\","   \
-    "\"serviceName\":\"%V\"," \
-    "\"groupName\":\"%V\","   \
-    "\"subscribe\":true,"     \
-    "\"clusters\":\"\"}"
-
-static ngx_int_t ngx_nacos_grpc_do_subscribe_service_items(
-    ngx_nacos_grpc_conn_t *gc) {
-    ngx_str_t req;
-    ngx_nacos_main_conf_t *ncf;
-    ngx_uint_t idx, len;
-    ngx_nacos_key_t **key;
-    ngx_nacos_grpc_stream_t *st;
-    ngx_nacos_grpc_buf_t *hbuf, *bbuf;
-    size_t b_len;
-    ngx_nacos_grpc_payload_encode_t en;
-    static u_char tmp[512];
-
-    ncf = grpc_ctx.ncf;
-    idx = grpc_ctx.key_idx;
-    key = ncf->keys.elts;
-    len = ncf->keys.nelts;
-
-    if (idx >= len) {
-        grpc_ctx.key_idx = 0;
-        gc->stat = subscribed;
-        ngx_log_error(NGX_LOG_INFO, gc->conn->log, 0, "all keys subscribed");
-        // may be all key is subscribed
-        ngx_add_timer(gc->conn->write, NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL);
-        return NGX_OK;
-    }
-    st = NULL;
-    hbuf = NULL;
-    bbuf = NULL;
-
-    st = ngx_nacos_grpc_create_stream(gc);
-    if (st == NULL) {
-        goto err;
-    }
-
-    ngx_str_set(&req, "/Request/request");
-    hbuf = ngx_nacos_grpc_encode_request(st, &req);
-    if (hbuf == NULL) {
-        goto err;
-    }
-
-    b_len = ngx_snprintf(tmp, sizeof(tmp), SUBSCRIBE_JSON_FMT,
-                         &ncf->service_namespace, &key[idx]->data_id,
-                         &key[idx]->group) -
-            (u_char *) tmp;
-
-    ngx_str_set(&en.type, "SubscribeServiceRequest");
-    en.json.len = b_len;
-    en.json.data = tmp;
-    bbuf = ngx_nacos_grpc_encode_data_msg(st, &en, 1);
-    if (bbuf == NULL) {
-        goto err;
-    }
-
-    hbuf->next = bbuf;
-    bbuf->callback = ngx_nacos_grpc_mark_subscribe_items;
-    bbuf->consume_win = en.encoded_len + 5;
-    return ngx_nacos_grpc_send_buf(hbuf, 1);
-
-err:
-    if (bbuf != NULL) {
-        ngx_nacos_grpc_free_buf(st, bbuf);
-    }
-    if (hbuf != NULL) {
-        ngx_nacos_grpc_free_buf(st, hbuf);
-    }
-    if (st != NULL) {
-        ngx_nacos_grpc_close_stream(st);
-    }
-    return NGX_ERROR;
-}
-
-static ngx_int_t ngx_nacos_grpc_do_subscribe_config_items(
-    ngx_nacos_grpc_conn_t *gc) {
-    ngx_str_t req, tmp;
-    ngx_nacos_main_conf_t *ncf;
-    ngx_uint_t idx, len;
-    ngx_nacos_key_t **key;
-    ngx_nacos_grpc_stream_t *st;
-    ngx_nacos_grpc_buf_t *hbuf, *bbuf;
-    ngx_nacos_grpc_payload_encode_t en;
-    yajl_gen gen;
-    u_char tmp_buf[128];
-    // ngx_uint_t i, l;
-    // yajl_gen_status gen_status;
-
-    ncf = grpc_ctx.ncf;
-    idx = grpc_ctx.conf_key_idx;
-    key = ncf->config_keys.elts;
-    len = ncf->config_keys.nelts;
-
-    if (idx >= len) {
-        grpc_ctx.conf_key_idx = 0;
-        gc->stat = subscribing_service;
-        ngx_log_error(NGX_LOG_INFO, gc->conn->log, 0,
-                      "all config_keys subscribed");
-        ngx_add_timer(gc->conn->write, 5);
-        return NGX_OK;
-    }
-
-    st = NULL;
-    hbuf = NULL;
-    bbuf = NULL;
-    gen = NULL;
-
-    st = ngx_nacos_grpc_create_stream(gc);
-    if (st == NULL) {
-        goto err;
-    }
-
-    ngx_str_set(&req, "/Request/request");
-    hbuf = ngx_nacos_grpc_encode_request(st, &req);
-    if (hbuf == NULL) {
-        goto err;
-    }
-
-    gen = yajl_gen_alloc(NULL);
-    if (gen == NULL) {
-        goto err;
-    }
-
-    // {"listen":true, "configListenContexts": [
-    if (yajl_gen_map_open(gen) != yajl_gen_status_ok ||  // {
-        yajl_gen_string(gen, (u_char *) "listen", sizeof("listen") - 1) !=
-            yajl_gen_status_ok ||                       // "listen"
-        yajl_gen_bool(gen, 1) != yajl_gen_status_ok ||  // "true
-
-        yajl_gen_string(gen, (u_char *) "configListenContexts",
-                        sizeof("configListenContexts") - 1) !=
-            yajl_gen_status_ok ||
-        yajl_gen_array_open(gen) !=
-            yajl_gen_status_ok  // "configListenContexts":[
-    ) {
-        goto err;
-    }
-
-    len = ngx_min(len, idx + NGX_NACOS_GRPC_CONFIG_BATCH_SIZE);
-    for (; idx < len; ++idx) {
-        tmp.data = tmp_buf;
-        tmp.len = sizeof(tmp_buf);
-        if (ngx_nacos_get_config_md5(key[idx], &tmp) != NGX_OK) {
-            goto err;
-        }
-
-        if (yajl_gen_map_open(gen) != yajl_gen_status_ok ||  // {
-            yajl_gen_string(gen, (u_char *) "group", sizeof("group") - 1) !=
-                yajl_gen_status_ok ||  // "group": group
-            yajl_gen_string(gen, key[idx]->group.data, key[idx]->group.len) !=
-                yajl_gen_status_ok ||
-
-            yajl_gen_string(gen, (u_char *) "dataId", sizeof("dataId") - 1) !=
-                yajl_gen_status_ok ||  // "dataId": dataId
-            yajl_gen_string(gen, key[idx]->data_id.data,
-                            key[idx]->data_id.len) != yajl_gen_status_ok ||
-
-            yajl_gen_string(gen, (u_char *) "md5", sizeof("md5") - 1) !=
-                yajl_gen_status_ok ||  // "md5": group
-            yajl_gen_string(gen, tmp.data, tmp.len) != yajl_gen_status_ok ||
-
-            yajl_gen_string(gen, (u_char *) "tenant", sizeof("tenant") - 1) !=
-                yajl_gen_status_ok ||  // "tenant": tenant
-            yajl_gen_string(gen, ncf->config_tenant.data,
-                            ncf->config_tenant.len) != yajl_gen_status_ok ||
-
-            yajl_gen_map_close(gen) != yajl_gen_status_ok) {
-            goto err;
-        }
-    }
-
-    // ], }
-    if (yajl_gen_array_close(gen) != yajl_gen_status_ok ||
-        yajl_gen_map_close(gen) != yajl_gen_status_ok) {
-        goto err;
-    }
-
-    if (yajl_gen_get_buf(gen, (const unsigned char **) &en.json.data,
-                         &en.json.len) != yajl_gen_status_ok) {
-        goto err;
-    }
-
-    ngx_str_set(&en.type, "ConfigBatchListenRequest");
-    bbuf = ngx_nacos_grpc_encode_data_msg(st, &en, 1);
-    if (bbuf == NULL) {
-        goto err;
-    }
-    st->handler_ctx = (void *) len;
-
-    hbuf->next = bbuf;
-    bbuf->callback = ngx_nacos_grpc_mark_subscribe_items;
-    bbuf->consume_win = en.encoded_len + 5;
-    return ngx_nacos_grpc_send_buf(hbuf, 1);
-
-err:
-    if (bbuf != NULL) {
-        ngx_nacos_grpc_free_buf(st, bbuf);
-    }
-    if (hbuf != NULL) {
-        ngx_nacos_grpc_free_buf(st, hbuf);
-    }
-    if (st != NULL) {
-        ngx_nacos_grpc_close_stream(st);
-    }
-    if (gen != NULL) {
-        yajl_gen_free(gen);
-    }
-    return NGX_ERROR;
-}
-
-static ngx_int_t ngx_nacos_grpc_mark_subscribe_items(
-    ngx_nacos_grpc_stream_t *st, ngx_int_t state) {
-    if (state == NGX_OK) {
-        st->stream_handler = ngx_nacos_grpc_service_sub_event_resp_handler;
-    }
-    return state;
-}
-
 static ngx_int_t ngx_nacos_grpc_decode_ule128(u_char **pp, const u_char *last,
                                               size_t *result) {
     ngx_flag_t resultStartedAtZero;
@@ -2271,17 +1805,19 @@ static bool ngx_nacos_grpc_encode_user_pass(pb_ostream_t *stream,
                                             void *const *arg) {
     ngx_str_t key;
     ngx_str_t value;
+    ngx_nacos_grpc_conn_t *conn;
     ngx_nacos_main_conf_t *mcf;
     Metadata_HeadersEntry entry;
 
-    mcf = *arg;
+    conn = *arg;
+    mcf = conn->nmcf;
     entry.key.arg = &key;
     entry.key.funcs.encode = ngx_nacos_grpc_pb_encode_str;
     entry.value.arg = &value;
     entry.value.funcs.encode = ngx_nacos_grpc_pb_encode_str;
 
-    ngx_str_set(&key, "username");
-    value = mcf->username;
+    ngx_str_set(&key, "clientIp");
+    value = mcf->local_ip;
     if (!pb_encode_tag_for_field(stream, field)) {
         return false;
     }
@@ -2289,8 +1825,29 @@ static bool ngx_nacos_grpc_encode_user_pass(pb_ostream_t *stream,
         return false;
     }
 
-    ngx_str_set(&key, "password");
-    value = mcf->password;
+    ngx_str_set(&key, "clientVersion");
+    ngx_str_set(&value, "nacos-nginx-plugin-2.10.0");
+    if (!pb_encode_tag_for_field(stream, field)) {
+        return false;
+    }
+    if (!pb_encode_submessage(stream, Metadata_HeadersEntry_fields, &entry)) {
+        return false;
+    }
+
+    if (mcf->access_token.len) {
+        ngx_str_set(&key, "accessToken");
+        value = mcf->access_token;
+        if (!pb_encode_tag_for_field(stream, field)) {
+            return false;
+        }
+        if (!pb_encode_submessage(stream, Metadata_HeadersEntry_fields,
+                                  &entry)) {
+            return false;
+        }
+    }
+
+    ngx_str_set(&key, "namespace");
+    value = mcf->service_namespace;
     if (!pb_encode_tag_for_field(stream, field)) {
         return false;
     }
@@ -2301,7 +1858,7 @@ static bool ngx_nacos_grpc_encode_user_pass(pb_ostream_t *stream,
 }
 
 static ngx_int_t ngx_nacos_grpc_encode_payload_init(
-    ngx_nacos_grpc_payload_encode_t *en) {
+    ngx_nacos_grpc_payload_encode_t *en, ngx_nacos_grpc_stream_t *st) {
     ngx_memzero(&en->payload, sizeof(en->payload));
     en->payload.body.value.arg = &en->json;
     en->payload.body.value.funcs.encode = ngx_nacos_grpc_pb_encode_str;
@@ -2310,11 +1867,8 @@ static ngx_int_t ngx_nacos_grpc_encode_payload_init(
     en->payload.has_metadata = 1;
     en->payload.has_body = 1;
 
-    if (grpc_ctx.ncf->username.len > 0 && grpc_ctx.ncf->password.len > 0) {
-        en->payload.metadata.headers.arg = grpc_ctx.ncf;
-        en->payload.metadata.headers.funcs.encode =
-            ngx_nacos_grpc_encode_user_pass;
-    }
+    en->payload.metadata.headers.arg = st->conn;
+    en->payload.metadata.headers.funcs.encode = ngx_nacos_grpc_encode_user_pass;
 
     return pb_get_encoded_size(&en->encoded_len, Payload_fields, &en->payload)
                ? NGX_OK
@@ -2322,177 +1876,121 @@ static ngx_int_t ngx_nacos_grpc_encode_payload_init(
 }
 
 static ngx_int_t ngx_nacos_grpc_encode_payload(
-    ngx_nacos_grpc_payload_encode_t *en) {
+    const ngx_nacos_grpc_payload_encode_t *en, ngx_nacos_grpc_stream_t *st) {
     pb_ostream_t buffer;
+
     if (en->buf != NULL) {
-        buffer = pb_ostream_from_buffer(en->buf, en->encoded_len);
+        buffer = pb_ostream_from_buffer(NULL, en->encoded_len);
+        buffer.callback = ngx_nacos_grpc_pb_write_buf;
+        buffer.state = en->buf;
         if (pb_encode(&buffer, Payload_fields, &en->payload) &&
             buffer.bytes_written == en->encoded_len) {
             return NGX_OK;
+        }
+
+        if (buffer.errmsg != NULL) {
+            ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
+                          "[nacos] encode payload failed: %s", buffer.errmsg);
         }
     }
     return NGX_ERROR;
 }
 
+static bool ngx_nacos_grpc_pb_write_buf(pb_ostream_t *stream,
+                                        const pb_byte_t *buf, size_t count) {
+    ngx_nacos_grpc_buf_t *cur;
+    size_t cnt, s;
+
+    cur = (ngx_nacos_grpc_buf_t *) stream->state;
+    while (count > 0) {
+        cnt = cur->cap - cur->len;
+        if (cnt == 0) {
+            cur = cur->next;
+            continue;
+        }
+        s = ngx_min(cnt, count);
+        ngx_memcpy(cur->b + cur->len, buf, s);
+        cur->len += s;
+        buf += s;
+        count -= s;
+    }
+    stream->state = cur;
+    return true;
+}
+
 static ngx_nacos_grpc_buf_t *ngx_nacos_grpc_encode_data_msg(
     ngx_nacos_grpc_stream_t *st, ngx_nacos_grpc_payload_encode_t *en,
     ngx_flag_t end_stream) {
-    size_t b_len;
+    size_t b_len, c_len, data_len;
     u_char *b;
-    ngx_nacos_grpc_buf_t *buf;
+    ngx_nacos_grpc_buf_t *head_buf, *last_buf, *buf;
+    ngx_uint_t max_frame_size;
 
+    head_buf = NULL;
+    last_buf = NULL;
     buf = NULL;
-    if (ngx_nacos_grpc_encode_payload_init(en) != NGX_OK) {
+    if (ngx_nacos_grpc_encode_payload_init(en, st) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
                       "protobuf payload init error");
         goto err;
     }
-    b_len = en->encoded_len;
-    if (b_len + 5 > st->conn->settings.max_frame_size) {
-        // FIXME protobuf is too long. split to multi data frames
+    data_len = en->encoded_len;
+    b_len = data_len + 5;
+
+    max_frame_size = st->conn->settings.max_frame_size;
+
+    while (b_len > 0) {
+        c_len = ngx_min(b_len, max_frame_size);
+        buf = ngx_nacos_grpc_alloc_buf(st, c_len + 9);
+        if (buf == NULL) {
+            goto err;
+        }
+
+        b = buf->b;
+        b_len -= c_len;
+        ngx_nacos_grpc_encode_frame_header(
+            st, b, HTTP_V2_DATA_FRAME,
+            end_stream && b_len == 0 ? HTTP_V2_END_STREAM_FLAG : 0, c_len);
+        buf->consume_win = c_len;
+        buf->len = 9;
+        if (head_buf == NULL) {
+            head_buf = buf;
+            b = head_buf->b;
+            // first data frame
+            b[9] = 0;
+            b[10] = (data_len >> 24) & 0xFF;
+            b[11] = (data_len >> 16) & 0xFF;
+            b[12] = (data_len >> 8) & 0xFF;
+            b[13] = data_len & 0xFF;
+            buf->len += 5;
+        } else {
+            last_buf->next = buf;
+        }
+        last_buf = buf;
+    }
+
+    if (end_stream) {
+        last_buf->sent_request = 1;
+    }
+
+    en->buf = head_buf;
+    if (ngx_nacos_grpc_encode_payload(en, st) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
                       "protobuf encode not match length");
         goto err;
     }
-
-    buf = ngx_nacos_grpc_alloc_buf(st, b_len + 5 + 9);
-    if (buf == NULL) {
-        goto err;
-    }
-    b = buf->b;
-    ngx_nacos_grpc_encode_frame_header(st, b, HTTP_V2_DATA_FRAME,
-                                       end_stream ? HTTP_V2_END_STREAM_FLAG : 0,
-                                       5 + b_len);
-    b[9] = 0;
-    b[10] = (b_len >> 24) & 0xFF;
-    b[11] = (b_len >> 16) & 0xFF;
-    b[12] = (b_len >> 8) & 0xFF;
-    b[13] = b_len & 0xFF;
-
-    en->buf = b + 14;
-    if (ngx_nacos_grpc_encode_payload(en) != NGX_OK) {
-        ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
-                      "protobuf encode not match length");
-        goto err;
-    }
-    buf->len = 9 + 5 + b_len;
     return buf;
 
 err:
-    if (buf != NULL) {
-        ngx_nacos_grpc_free_buf(st, buf);
+    if (head_buf != NULL) {
+        buf = head_buf;
+        do {
+            last_buf = buf->next;
+            ngx_nacos_grpc_free_buf(st, buf);
+            buf = last_buf;
+        } while (buf);
     }
     return NULL;
-}
-
-static ngx_int_t ngx_nacos_grpc_subscribe_response_handler(
-    ngx_nacos_grpc_stream_t *st, enum ngx_nacos_payload_type payload_type,
-    yajl_val json) {
-    ngx_int_t rc;
-    if (st->long_live) {
-        if (payload_type == ClientDetectionRequest) {
-            rc = ngx_nacos_grpc_send_server_push_resp(
-                st, json, "ClientDetectionResponse");
-            ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                          "ClientDetectionRequest received:[%d]", rc);
-        } else if (payload_type == NotifySubscriberRequest) {
-            rc = ngx_nacos_grpc_notify_address_shm(st->conn, json);
-            ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                          "NotifySubscriberRequest received:[%d]", rc);
-            rc = ngx_nacos_grpc_send_server_push_resp(
-                st, json, "NotifySubscriberResponse");
-        } else if (payload_type == ConfigChangeNotifyRequest) {
-            rc = ngx_nacos_grpc_config_change_notified(st->conn, json);
-            ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                          "ConfigChangeNotifyRequest received:[%d]", rc);
-            rc = ngx_nacos_grpc_send_server_push_resp(
-                st, json, "ConfigChangeNotifyResponse");
-        } else {
-            ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                          "ngx_nacos_grpc_subscribe_response_handler call "
-                          "in no_push_stream");
-            rc = NGX_ERROR;
-        }
-    } else {
-        //
-        ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                      "ngx_nacos_grpc_subscribe_response_handler call "
-                      "in no_push_stream");
-        rc = NGX_ERROR;
-    }
-
-    return rc;
-}
-
-static ngx_int_t ngx_nacos_grpc_service_sub_event_resp_handler(
-    ngx_nacos_grpc_stream_t *st, enum ngx_nacos_payload_type type,
-    yajl_val json) {
-    ngx_int_t rc;
-    if (type == SubscribeServiceResponse) {
-        if (ngx_nacos_grpc_payload_is_response_ok(type, json)) {
-            grpc_ctx.key_idx++;
-            rc = ngx_nacos_grpc_do_subscribe_service_items(st->conn);
-        } else {
-            rc = NGX_ERROR;
-        }
-        ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                      "SubscribeServiceResponse received:[%d]", rc);
-    } else if (type == ConfigChangeBatchListenResponse) {
-        if (ngx_nacos_grpc_payload_is_response_ok(type, json)) {
-            (void) ngx_nacos_grpc_config_change_deal(st, json);
-            grpc_ctx.conf_key_idx = (ngx_uint_t) st->handler_ctx;
-            rc = ngx_nacos_grpc_do_subscribe_config_items(st->conn);
-        } else {
-            rc = NGX_ERROR;
-        }
-        ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                      "ConfigChangeBatchListenResponse received:[%d]", rc);
-    } else {
-        rc = NGX_ERROR;
-    }
-
-    return rc;
-}
-
-static ngx_int_t ngx_nacos_grpc_config_change_deal(ngx_nacos_grpc_stream_t *st,
-                                                   yajl_val root) {
-    yajl_val *it, *et, changedConfigs;
-    ngx_int_t rc;
-
-    rc = NGX_ERROR;
-
-    if (root == NULL) {
-        goto end;
-    }
-
-    changedConfigs = yajl_tree_get_field(root, "changedConfigs", yajl_t_array);
-    if (changedConfigs == NULL) {
-        goto end;
-    }
-    rc = NGX_OK;
-    it = YAJL_GET_ARRAY(changedConfigs)->values;
-    et = it + YAJL_GET_ARRAY(changedConfigs)->len;
-    for (; it < et; ++it) {
-        if (!YAJL_IS_OBJECT(*it)) {
-            ngx_log_error(NGX_LOG_WARN, st->conn->conn->log, 0,
-                          "nacos ConfigChangeBatchListenResponse "
-                          "changedConfigs is not object");
-            continue;
-        }
-        rc = ngx_nacos_grpc_config_change_notified(st->conn, *it);
-        if (rc == NGX_ERROR) {
-            ngx_log_error(NGX_LOG_WARN, st->conn->conn->log, 0,
-                          "nacos ConfigChangeBatchListenResponse "
-                          "send_config_query failed");
-            break;
-        }
-        ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                      "nacos ConfigChangeBatchListenResponse "
-                      "send_config_query [%d]",
-                      rc);
-    }
-end:
-    return rc;
 }
 
 static ngx_int_t ngx_nacos_grpc_realloc_tmp_buf(ngx_nacos_grpc_stream_t *st,
@@ -2591,20 +2089,22 @@ static ngx_int_t ngx_nacos_grpc_decode_payload(
     size_t i, len;
     pb_istream_t buffer;
 
-    de->json = NULL;
     ngx_memzero(&de->result, sizeof(de->result));
+    ngx_memzero(&de->payload, sizeof(de->payload));
     de->result.body.value.funcs.decode = ngx_nacos_grpc_pb_decode_str;
     de->result.body.value.arg = &de->out_json;
     de->result.metadata.type.funcs.decode = ngx_nacos_grpc_pb_decode_str;
     de->result.metadata.type.arg = &de->type;
 
+    de->payload.msg_state = pl_error;
+
     buffer = pb_istream_from_buffer(de->input.data, de->input.len);
     if (!pb_decode(&buffer, Payload_fields, &de->result)) {
         ngx_log_error_core(NGX_ERROR_ERR, st->conn->conn->log, 0,
                            "decode protobuf error:%s", buffer.errmsg);
+        de->payload.msg_state = pl_fail;
         return NGX_ERROR;
     }
-    de->payload_type = 0;
 
     for (i = 0,
         len = sizeof(payload_type_mapping) / sizeof(payload_type_mapping[0]);
@@ -2612,346 +2112,14 @@ static ngx_int_t ngx_nacos_grpc_decode_payload(
         if (de->type.len == payload_type_mapping[i].type_name.len &&
             ngx_strncmp(de->type.data, payload_type_mapping[i].type_name.data,
                         payload_type_mapping[i].type_name.len) == 0) {
-            de->payload_type = payload_type_mapping[i].payload_type;
+            de->payload.type = payload_type_mapping[i].payload_type;
+            de->payload.msg_state = pl_success;
             break;
         }
     }
-    if (i < len) {
-        de->json = yajl_tree_parse_with_len((const char *) de->out_json.data,
-                                            de->out_json.len);
-        if (de->json == NULL) {
-            ngx_nacos_grpc_decode_payload_destroy(de);
-            return NGX_ERROR;
-        }
-    }
+
+    de->payload.json_str = de->out_json;
 
     return NGX_OK;
 }
 
-static void ngx_nacos_grpc_decode_payload_destroy(
-    ngx_nacos_grpc_payload_decode_t *de) {
-    if (de->json != NULL) {
-        yajl_tree_free(de->json);
-        de->json = NULL;
-    }
-}
-
-static ngx_flag_t ngx_nacos_grpc_payload_is_response_ok(
-    enum ngx_nacos_payload_type payload_type, yajl_val root) {
-    yajl_val val;
-    ngx_flag_t r;
-    if (payload_type < ClientDetectionResponse || payload_type >= NONE__END) {
-        return 0;
-    }
-    if (root == NULL) {
-        return 0;
-    }
-    val = yajl_tree_get_field(root, "resultCode", yajl_t_number);
-    if (val != NULL && YAJL_GET_INTEGER(val) == 200) {
-        r = 1;
-    } else {
-        r = 0;
-    }
-    return r;
-}
-
-#define NACOS_COMMON_RESPONSE_FMT "{\"resultCode\":200,\"requestId\":\"%s\"}"
-
-static ngx_int_t ngx_nacos_grpc_send_server_push_resp(
-    ngx_nacos_grpc_stream_t *st, yajl_val json, const char *resp_type) {
-    ngx_nacos_grpc_payload_encode_t en;
-    ngx_nacos_grpc_buf_t *buf;
-    yajl_val req_id;
-    u_char tmp[128];
-
-    if (json == NULL) {
-        return NGX_ERROR;
-    }
-    req_id = yajl_tree_get_field(json, "requestId", yajl_t_string);
-    if (req_id == NULL) {
-        ngx_log_error(NGX_LOG_WARN, st->conn->conn->log, 0,
-                      "nacos server sent request without request id");
-        return NGX_ERROR;
-    }
-
-    en.type.data = (u_char *) resp_type;
-    en.type.len = strlen(resp_type);
-    en.json.len = ngx_snprintf(tmp, sizeof(tmp), NACOS_COMMON_RESPONSE_FMT,
-                               YAJL_GET_STRING(req_id)) -
-                  tmp;
-    en.json.data = tmp;
-
-    buf = ngx_nacos_grpc_encode_data_msg(st, &en, 0);
-    if (buf == NULL) {
-        return NGX_ERROR;
-    }
-    buf->consume_win = en.encoded_len + 5;
-    return ngx_nacos_grpc_send_buf(buf, 1);
-}
-
-static ngx_int_t ngx_nacos_grpc_notify_address_shm(ngx_nacos_grpc_conn_t *gc,
-                                                   yajl_val json) {
-    yajl_val s_name, g_name;
-    ngx_nacos_resp_json_parser_t parser;
-    ngx_nacos_key_t *key;
-    ngx_pool_t *pool;
-    ngx_int_t rc;
-    char *adr;
-    u_char tmp[256];
-    ngx_nacos_data_t cache;
-    size_t len;
-
-    pool = NULL;
-    rc = NGX_ERROR;
-
-    if (json == NULL) {
-        goto end;
-    }
-    ngx_memzero(&parser, sizeof(parser));
-    parser.json = yajl_tree_get_field(json, "serviceInfo", yajl_t_object);
-    if (parser.json == NULL) {
-        goto end;
-    }
-    s_name = yajl_tree_get_field(parser.json, "name", yajl_t_string);
-    if (s_name == NULL) {
-        goto end;
-    }
-    g_name = yajl_tree_get_field(parser.json, "groupName", yajl_t_string);
-    if (g_name == NULL) {
-        goto end;
-    }
-
-    len = ngx_snprintf(tmp, sizeof(tmp) - 1, "%s@@%s", YAJL_GET_STRING(g_name),
-                       YAJL_GET_STRING(s_name)) -
-          tmp;
-    tmp[len] = 0;
-
-    key = ngx_nacos_hash_find_key(grpc_ctx.ncf->key_hash, tmp);
-    if (key == NULL) {
-        ngx_log_error(NGX_LOG_WARN, gc->conn->log, 0,
-                      "nacos server sent address with unknown server:%s", tmp);
-        goto end;
-    }
-
-    pool = ngx_create_pool(512, gc->conn->log);
-    if (pool == NULL) {
-        goto end;
-    }
-
-    parser.pool = pool;
-    parser.log = pool->log;
-    parser.prev_version = ngx_nacos_shmem_version(key);
-    adr = ngx_nacos_parse_addrs_from_json(&parser);
-    if (adr == NULL) {
-        goto end;
-    }
-    rc = ngx_nacos_update_shm(grpc_ctx.ncf, key, adr, pool->log);
-    if (rc == NGX_OK) {
-        ngx_log_error(NGX_LOG_INFO, pool->log, 0,
-                      "nacos service %V@@%V is updated!!!", &key->group,
-                      &key->data_id);
-    }
-    cache.pool = pool;
-    cache.data_id = key->data_id;
-    cache.group = key->group;
-    cache.version = parser.current_version;
-    cache.adr = adr;
-    rc = ngx_nacos_write_disk_data(grpc_ctx.ncf, &cache);
-
-end:
-    if (pool != NULL) {
-        ngx_destroy_pool(pool);
-    }
-
-    return rc;
-}
-
-static ngx_int_t ngx_nacos_grpc_config_change_notified(
-    ngx_nacos_grpc_conn_t *gc, yajl_val root) {
-    yajl_val s_name, g_name, t_name;
-    ngx_nacos_key_t *key;
-    ngx_int_t rc;
-    u_char tmp[512];
-    size_t len;
-    char *name;
-
-    rc = NGX_ERROR;
-
-    if (root == NULL) {
-        goto end;
-    }
-    s_name = yajl_tree_get_field(root, "dataId", yajl_t_string);
-    if (s_name == NULL) {
-        goto end;
-    }
-    g_name = yajl_tree_get_field(root, "group", yajl_t_string);
-    if (g_name == NULL) {
-        goto end;
-    }
-    t_name = yajl_tree_get_field(root, "tenant", yajl_t_string);
-    name = YAJL_GET_STRING(t_name);
-    if (name == NULL) {
-        name = "";
-    }
-    if (grpc_ctx.ncf->config_tenant.len > 0 &&
-        (ngx_strlen(name) != grpc_ctx.ncf->config_tenant.len ||
-         ngx_strcmp(grpc_ctx.ncf->config_tenant.data, name) != 0)) {
-        ngx_log_error(NGX_LOG_WARN, gc->conn->log, 0,
-                      "nacos server sent config change with unknown tenant:%s",
-                      YAJL_GET_STRING(t_name));
-        goto end;
-    }
-
-    len = ngx_snprintf(tmp, sizeof(tmp) - 1, "%s@@%s", YAJL_GET_STRING(g_name),
-                       YAJL_GET_STRING(s_name)) -
-          tmp;
-    tmp[len] = 0;
-
-    key = ngx_nacos_hash_find_key(grpc_ctx.ncf->config_key_hash, tmp);
-    if (key == NULL) {
-        ngx_log_error(
-            NGX_LOG_WARN, gc->conn->log, 0,
-            "nacos server sent config change with unknown data group:%s", tmp);
-        goto end;
-    }
-
-    rc = ngx_nacos_grpc_send_config_query_request(gc, key);
-end:
-
-    return rc;
-}
-
-#define CONFIG_QUERY_JSON \
-    "{\"dataId\":\"%V\"," \
-    "\"group\":\"%V\",\"tenant\":\"%V\"}"
-
-static ngx_int_t ngx_nacos_grpc_send_config_query_request(
-    ngx_nacos_grpc_conn_t *gc, ngx_nacos_key_t *key) {
-    ngx_str_t req;
-    ngx_nacos_main_conf_t *ncf;
-    ngx_nacos_grpc_stream_t *st;
-    ngx_nacos_grpc_buf_t *hbuf, *bbuf;
-    size_t b_len;
-    ngx_nacos_grpc_payload_encode_t en;
-    static u_char tmp[1024];
-
-    st = NULL;
-    hbuf = NULL;
-    bbuf = NULL;
-
-    ncf = grpc_ctx.ncf;
-
-    st = ngx_nacos_grpc_create_stream(gc);
-    if (st == NULL) {
-        goto err;
-    }
-    st->handler_ctx = key;
-
-    ngx_str_set(&req, "/Request/request");
-    hbuf = ngx_nacos_grpc_encode_request(st, &req);
-    if (hbuf == NULL) {
-        goto err;
-    }
-
-    b_len = ngx_snprintf(tmp, sizeof(tmp), CONFIG_QUERY_JSON, &key->data_id,
-                         &key->group, &ncf->config_tenant) -
-            (u_char *) tmp;
-
-    ngx_str_set(&en.type, "ConfigQueryRequest");
-    en.json.len = b_len;
-    en.json.data = tmp;
-    bbuf = ngx_nacos_grpc_encode_data_msg(st, &en, 1);
-    if (bbuf == NULL) {
-        goto err;
-    }
-
-    hbuf->next = bbuf;
-    bbuf->callback = ngx_nacos_grpc_mark_query_config;
-    bbuf->consume_win = en.encoded_len + 5;
-    return ngx_nacos_grpc_send_buf(hbuf, 1);
-
-err:
-    if (bbuf != NULL) {
-        ngx_nacos_grpc_free_buf(st, bbuf);
-    }
-    if (hbuf != NULL) {
-        ngx_nacos_grpc_free_buf(st, hbuf);
-    }
-    if (st != NULL) {
-        ngx_nacos_grpc_close_stream(st);
-    }
-    return NGX_ERROR;
-}
-
-static ngx_int_t ngx_nacos_grpc_mark_query_config(ngx_nacos_grpc_stream_t *st,
-                                                  ngx_int_t state) {
-    if (state == NGX_OK) {
-        st->stream_handler = ngx_nacos_grpc_config_query_resp_handler;
-    }
-    return state;
-}
-
-static ngx_int_t ngx_nacos_grpc_config_query_resp_handler(
-    ngx_nacos_grpc_stream_t *st, enum ngx_nacos_payload_type type,
-    yajl_val json) {
-    ngx_int_t rc;
-
-    if (type == ConfigQueryResponse) {
-        if (ngx_nacos_grpc_payload_is_response_ok(type, json)) {
-            rc = ngx_nacos_grpc_notify_config_shm(st, json);
-        } else {
-            rc = NGX_ERROR;
-        }
-        ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
-                      "ConfigQueryResponse received:[%d]", rc);
-        rc = NGX_OK;
-    } else {
-        rc = NGX_ERROR;
-    }
-    return rc;
-}
-
-static ngx_int_t ngx_nacos_grpc_notify_config_shm(ngx_nacos_grpc_stream_t *st,
-                                                  yajl_val json) {
-    ngx_nacos_key_t *key;
-    ngx_nacos_resp_json_parser_t parser;
-    ngx_int_t rc;
-    char *adr;
-    ngx_nacos_data_t cache;
-
-    key = st->handler_ctx;
-    rc = NGX_ERROR;
-
-    ngx_memzero(&parser, sizeof(parser));
-    if (json == NULL) {
-        goto end;
-    }
-
-    parser.json = json;
-    parser.pool = st->pool;
-    parser.log = st->pool->log;
-    parser.prev_version = ngx_nacos_shmem_version(key);
-    adr = ngx_nacos_parse_config_from_json(&parser);
-    if (adr == NULL) {
-        ngx_log_error(NGX_LOG_WARN, parser.pool->log, 0,
-                      "nacos config %V@@%V is updated failed!!!", &key->group,
-                      &key->data_id);
-        goto end;
-    }
-    rc = ngx_nacos_update_shm(grpc_ctx.ncf, key, adr, parser.pool->log);
-    if (rc == NGX_OK) {
-        ngx_log_error(NGX_LOG_INFO, parser.pool->log, 0,
-                      "nacos config %V@@%V is updated!!!", &key->group,
-                      &key->data_id);
-    }
-    cache.pool = st->pool;
-    cache.data_id = key->data_id;
-    cache.group = key->group;
-    cache.version = parser.current_version;
-    cache.adr = adr;
-    rc = ngx_nacos_write_disk_data(grpc_ctx.ncf, &cache);
-
-end:
-
-    return rc;
-}

@@ -34,9 +34,32 @@ typedef struct {
     ngx_nacos_key_t **key_ptr;
 } ngx_nacos_sub_t;
 
+/** TODO dynamic  subscribe/unsubscribe service or config
+typedef struct ngx_nacos_dynamic_node_s ngx_nacos_dynamic_node_t;
+
+typedef struct ngx_nacos_dynamic_s ngx_nacos_dynamic_t;
+
+struct ngx_nacos_dynamic_s {
+    ngx_nacos_dynamic_node_t **nodes;
+    ngx_uint_t node_count;
+    ngx_uint_t node_capacity;
+    ngx_uint_t node_version;
+};
+
+struct ngx_nacos_dynamic_node_s {
+    ngx_str_t ip;
+    ngx_str_t port;
+    ngx_str_t weight;
+    ngx_str_t cluster;
+    ngx_str_t metadata;
+};*/
+
 typedef struct {
     ngx_array_t server_list;       // ngx_addr_t
     ngx_array_t grpc_server_list;  // ngx_addr_t
+    ngx_resolver_t *resolver;
+    ngx_str_t local_ip;
+    ngx_str_t access_token;
     ngx_uint_t cur_srv_index;
     ngx_str_t default_group;
     ngx_str_t udp_port;
@@ -58,12 +81,14 @@ typedef struct {
 
     ngx_array_t keys;         //  ngx_nacos_key_t *
     ngx_array_t config_keys;  // ngx_nacos_key_t *
+    ngx_nacos_key_t *dy_svc_config_key;
     ngx_shm_zone_t *zone;
     ngx_slab_pool_t *sh;
     ngx_hash_t *key_hash;
     ngx_hash_t *config_key_hash;
     ngx_addr_t udp_addr;
 } ngx_nacos_main_conf_t;
+
 typedef struct {
     ngx_str_t host;
     int32_t port;
@@ -108,5 +133,9 @@ ngx_int_t nax_nacos_get_config(ngx_nacos_key_t *key,
 
 #define NGX_NC_ERROR 2
 #define NGX_NC_TIRED 4
+
+ngx_int_t ngx_nacos_naming_init(ngx_nacos_main_conf_t *nmcf);
+ngx_int_t ngx_nacos_config_init(ngx_nacos_main_conf_t *nmcf);
+
 
 #endif  // NGINX_NACOS_NGX_NACOS_H

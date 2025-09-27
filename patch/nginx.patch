@@ -1,57 +1,8 @@
-diff --git a/auto/make b/auto/make
-index 34c40cdd5..9a5650395 100644
---- a/auto/make
-+++ b/auto/make
-@@ -37,7 +37,7 @@ fi
- 
- # ALL_INCS, required by the addons and by OpenWatcom C precompiled headers
- 
--ngx_incs=`echo $CORE_INCS $NGX_OBJS $HTTP_INCS $MAIL_INCS $STREAM_INCS\
-+ngx_incs=`echo $CORE_INCS $NGX_OBJS $AUXILIARY_INCS $HTTP_INCS $MAIL_INCS $STREAM_INCS\
-     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont$ngx_include_opt\1/g" \
-           -e "s/\//$ngx_regex_dirsep/g"`
- 
-@@ -57,7 +57,7 @@ ngx_deps=`echo $CORE_DEPS $NGX_AUTO_CONFIG_H $NGX_PCH \
-     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont\1/g" \
-           -e "s/\//$ngx_regex_dirsep/g"`
- 
--ngx_incs=`echo $CORE_INCS $NGX_OBJS \
-+ngx_incs=`echo $CORE_INCS $NGX_OBJS $AUXILIARY_INCS \
-     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont$ngx_include_opt\1/g" \
-           -e "s/\//$ngx_regex_dirsep/g"`
- 
-diff --git a/auto/modules b/auto/modules
-index d78e2823a..15e8d52c1 100644
---- a/auto/modules
-+++ b/auto/modules
-@@ -1267,7 +1267,7 @@ if [ $USE_PCRE = YES ]; then
- fi
- 
- 
--modules="$CORE_MODULES $EVENT_MODULES"
-+modules="$CORE_MODULES $EVENT_MODULES $AUXILIARY_MODULES"
- 
- 
- # thread pool module should be initialized after events
-diff --git a/auto/sources b/auto/sources
-index 3dad11132..8e742c445 100644
---- a/auto/sources
-+++ b/auto/sources
-@@ -81,6 +81,9 @@ CORE_SRCS="src/core/nginx.c \
-            src/core/ngx_syslog.c"
- 
- 
-+AUXILIARY_MODULES=
-+AUXILIARY_INCS=
-+
- EVENT_MODULES="ngx_events_module ngx_event_core_module"
- 
- EVENT_INCS="src/event src/event/modules"
 diff --git a/src/http/ngx_http_upstream.c b/src/http/ngx_http_upstream.c
-index be96be47a..a8d654c6d 100644
+index d29e503..1b58c85 100644
 --- a/src/http/ngx_http_upstream.c
 +++ b/src/http/ngx_http_upstream.c
-@@ -5822,11 +5822,13 @@ ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
+@@ -6151,11 +6151,13 @@ ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
          return rv;
      }
  
@@ -66,7 +17,7 @@ index be96be47a..a8d654c6d 100644
      return rv;
  }
 diff --git a/src/os/unix/ngx_process_cycle.c b/src/os/unix/ngx_process_cycle.c
-index 5817a2c23..ccb36a76e 100644
+index 5bc5ce9..647a037 100644
 --- a/src/os/unix/ngx_process_cycle.c
 +++ b/src/os/unix/ngx_process_cycle.c
 @@ -10,6 +10,9 @@
@@ -79,7 +30,7 @@ index 5817a2c23..ccb36a76e 100644
  
  static void ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n,
      ngx_int_t type);
-@@ -131,6 +134,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+@@ -130,6 +133,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
      ngx_start_worker_processes(cycle, ccf->worker_processes,
                                 NGX_PROCESS_RESPAWN);
      ngx_start_cache_manager_processes(cycle, 0);
@@ -89,7 +40,7 @@ index 5817a2c23..ccb36a76e 100644
  
      ngx_new_binary = 0;
      delay = 0;
-@@ -225,6 +231,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+@@ -215,6 +221,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
                  ngx_start_worker_processes(cycle, ccf->worker_processes,
                                             NGX_PROCESS_RESPAWN);
                  ngx_start_cache_manager_processes(cycle, 0);
@@ -99,7 +50,7 @@ index 5817a2c23..ccb36a76e 100644
                  ngx_noaccepting = 0;
  
                  continue;
-@@ -244,6 +253,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+@@ -234,6 +243,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
              ngx_start_worker_processes(cycle, ccf->worker_processes,
                                         NGX_PROCESS_JUST_RESPAWN);
              ngx_start_cache_manager_processes(cycle, 1);
@@ -109,7 +60,7 @@ index 5817a2c23..ccb36a76e 100644
  
              /* allow new processes to start */
              ngx_msleep(100);
-@@ -258,6 +270,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+@@ -248,6 +260,9 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
              ngx_start_worker_processes(cycle, ccf->worker_processes,
                                         NGX_PROCESS_RESPAWN);
              ngx_start_cache_manager_processes(cycle, 0);
@@ -119,7 +70,7 @@ index 5817a2c23..ccb36a76e 100644
              live = 1;
          }
  
-@@ -1227,3 +1242,10 @@ ngx_cache_loader_process_handler(ngx_event_t *ev)
+@@ -1189,3 +1204,10 @@ ngx_cache_loader_process_handler(ngx_event_t *ev)
  
      exit(0);
  }
@@ -131,14 +82,15 @@ index 5817a2c23..ccb36a76e 100644
 +}
 +#endif
 diff --git a/src/os/unix/ngx_process_cycle.h b/src/os/unix/ngx_process_cycle.h
-index 69495d5f4..7c336612a 100644
+index 69495d5..6c0d3a3 100644
 --- a/src/os/unix/ngx_process_cycle.h
 +++ b/src/os/unix/ngx_process_cycle.h
-@@ -58,4 +58,8 @@ extern sig_atomic_t    ngx_reopen;
+@@ -58,4 +58,9 @@ extern sig_atomic_t    ngx_reopen;
  extern sig_atomic_t    ngx_change_binary;
  
  
 +#if NGX_HAVE_AUXILIARY
++#define NGX_AUX_PATCHED 1
 +void ngx_worker_aux_process_init(ngx_cycle_t *cycle);
 +#endif
 +

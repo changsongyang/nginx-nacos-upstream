@@ -36,6 +36,22 @@ ngx_int_t ngx_nacos_fetch_disk_data(ngx_nacos_main_conf_t *mcf,
 ngx_int_t ngx_nacos_write_disk_data(ngx_nacos_main_conf_t *mcf,
                                     ngx_nacos_data_t *cache);
 
+typedef struct {
+    ngx_str_t login_body;
+    ngx_str_t password;
+    ngx_str_t username;
+    size_t token_buf_size;
+    ngx_str_t token;
+    ngx_uint_t token_expire_time;
+} ngx_nacos_login_info_t;
+
+ngx_int_t ngx_nacos_fetch_access_token(ngx_nacos_main_conf_t *mcf, ngx_nacos_login_info_t *li);
+
+ngx_int_t ngx_nacos_get_access_token_from_login_json(yajl_val json, ngx_nacos_login_info_t *li);
+
+
+ngx_int_t ngx_nacos_fetch_local_ip(ngx_nacos_main_conf_t *mcf, ngx_pool_t *pool);
+
 ngx_int_t ngx_nacos_fetch_addrs_net_data(ngx_nacos_main_conf_t *mcf,
                                          ngx_nacos_data_t *cache);
 

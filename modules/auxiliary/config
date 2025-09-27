@@ -1,4 +1,18 @@
-ngx_module_type=AUXILIARY
+
+ngx_module_type=CORE
+ngx_module_name=
+ngx_module_incs=$ngx_addon_dir
+ngx_module_deps=
+ngx_module_srcs=
+ngx_module_libs=
+ngx_module_order=
+ngx_module_link=ADDON
+
+. auto/module
+
+# =============== event =============================
+
+ngx_module_type=EVENT
 ngx_module_name=ngx_auxiliary_module
 ngx_module_incs=$ngx_addon_dir
 ngx_module_deps=$ngx_addon_dir/ngx_auxiliary_module.h

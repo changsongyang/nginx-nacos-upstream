@@ -74,7 +74,12 @@ http {
 wget https://nginx.org/download/nginx-1.15.2.tar.gz
 tar zxvf nginx-1.15.2.tar.gz
 ```
-- 下载本项目源代码 nginx-nacos-upstream .本项目对 nginx 源代码有少量修改，所以需要 打上 patch
+- 下载本项目源代码 nginx-nacos-upstream
+```bash
+git clone https://github.com/nacos-group/nginx-nacos-upstream.git
+```
+
+- 如果选择以单独的辅助进程订阅nacos，则需要patch修改 nginx 源代码（可选但推荐：单独的nacos辅助进程不会因为本项目bug导致worker进程无法处理流量），否则在worker0 进程订阅nacos
 ```bash
 cd nginx-1.15.2 && patch -p1 < ../nginx-nacos-upstream/patch/nginx.patch
 ```
@@ -91,7 +96,12 @@ cd nginx-1.15.2 && patch -p1 < ../nginx-nacos-upstream/patch/nginx.patch
 wget https://openresty.org/download/openresty-1.25.3.2.tar.gz
 tar zxvf openresty-1.25.3.2.tar.gz
 ```
-- 下载本项目源代码 nginx-nacos-upstream .本项目对 nginx 源代码有少量修改，所以需要 打上 patch. 注意，这里使用的是openresty.patch 并且进入 bundle 下的 nginx 目录执行
+- 下载本项目源代码 nginx-nacos-upstream .
+```bash
+git clone https://github.com/nacos-group/nginx-nacos-upstream.git
+```
+
+- 本项目对 nginx 源代码有少量修改,所以需要 打上 patch. 注意，这里使用的是openresty.patch 并且进入 bundle 下的 nginx 目录执行 (可选,同 nginx)
 ```bash
 cd openresty-1.25.3.2/bundle/nginx-1.25.3 && patch -p1 < ../../../nginx-nacos-upstream/patch/openresty.patch
 ```
@@ -106,7 +116,7 @@ make
 ```
 
 ### 原理
- - 新增加一个 auxiliary 模块, 启动一个单独辅助进程，用于订阅和接受 nacos 的 grpc 或者 udp 消息推送，不影响 worker 进程的工作。
+ - 新增加一个 auxiliary 模块, 启动一个单独辅助进程（或者在 worker0 进程），用于订阅和接受 nacos 的 grpc 或者 udp 消息推送，不影响 worker 进程的工作。
  - 收到消息推送后更新到共享内存，便于 worker 进程可以拿到最新的推送。 推送的数据也会缓存到磁盘，下次启动时候首先从磁盘读取。
 
 # 详细配置
@@ -237,7 +247,7 @@ upstream backend {
 set $cluster "DEFAULT";
 
 upstream backend {
-    nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP weight=1 max_fails=1 fail_timeout=10s;
+    nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP weight=100 max_fails=10 fail_timeout=10s;
     nacos_use_cluster $cluster;
 }
 ```

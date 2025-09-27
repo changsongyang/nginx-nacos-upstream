@@ -1,57 +1,8 @@
-diff --git a/auto/make b/auto/make
-index 25ee3fb..d61a188 100644
---- a/auto/make
-+++ b/auto/make
-@@ -38,7 +38,7 @@ fi
- 
- # ALL_INCS, required by the addons and by OpenWatcom C precompiled headers
- 
--ngx_incs=`echo $CORE_INCS $NGX_OBJS $HTTP_INCS $MAIL_INCS $STREAM_INCS\
-+ngx_incs=`echo $CORE_INCS $NGX_OBJS $AUXILIARY_INCS $HTTP_INCS $MAIL_INCS $STREAM_INCS\
-     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont$ngx_include_opt\1/g" \
-           -e "s/\//$ngx_regex_dirsep/g"`
- 
-@@ -58,7 +58,7 @@ ngx_deps=`echo $CORE_DEPS $NGX_AUTO_CONFIG_H $NGX_PCH \
-     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont\1/g" \
-           -e "s/\//$ngx_regex_dirsep/g"`
- 
--ngx_incs=`echo $CORE_INCS $NGX_OBJS \
-+ngx_incs=`echo $CORE_INCS $NGX_OBJS $AUXILIARY_INCS \
-     | sed -e "s/  *\([^ ][^ ]*\)/$ngx_regex_cont$ngx_include_opt\1/g" \
-           -e "s/\//$ngx_regex_dirsep/g"`
- 
-diff --git a/auto/modules b/auto/modules
-index 300d07c..f72c9a9 100644
---- a/auto/modules
-+++ b/auto/modules
-@@ -1381,7 +1381,7 @@ if [ $USE_PCRE = YES ]; then
- fi
- 
- 
--modules="$CORE_MODULES $EVENT_MODULES"
-+modules="$CORE_MODULES $EVENT_MODULES $AUXILIARY_MODULES"
- 
- 
- # thread pool module should be initialized after events
-diff --git a/auto/sources b/auto/sources
-index 46408ee..ab13c93 100644
---- a/auto/sources
-+++ b/auto/sources
-@@ -81,6 +81,9 @@ CORE_SRCS="src/core/nginx.c \
-            src/core/ngx_syslog.c"
- 
- 
-+AUXILIARY_MODULES=
-+AUXILIARY_INCS=
-+
- EVENT_MODULES="ngx_events_module ngx_event_core_module"
- 
- EVENT_INCS="src/event src/event/modules src/event/quic"
 diff --git a/src/http/ngx_http_upstream.c b/src/http/ngx_http_upstream.c
-index 2be233c..f4ee563 100644
+index d04d91e..0802c29 100644
 --- a/src/http/ngx_http_upstream.c
 +++ b/src/http/ngx_http_upstream.c
-@@ -6146,11 +6146,13 @@ ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
+@@ -6163,11 +6163,13 @@ ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
          return rv;
      }
  
@@ -66,7 +17,7 @@ index 2be233c..f4ee563 100644
      return rv;
  }
 diff --git a/src/os/unix/ngx_process_cycle.c b/src/os/unix/ngx_process_cycle.c
-index dadf03f..d003cc6 100644
+index cbe6dc7..a8bd7e7 100644
 --- a/src/os/unix/ngx_process_cycle.c
 +++ b/src/os/unix/ngx_process_cycle.c
 @@ -10,6 +10,9 @@
@@ -131,14 +82,15 @@ index dadf03f..d003cc6 100644
 +}
 +#endif
 diff --git a/src/os/unix/ngx_process_cycle.h b/src/os/unix/ngx_process_cycle.h
-index 5149396..dbce402 100644
+index 5149396..02a34d2 100644
 --- a/src/os/unix/ngx_process_cycle.h
 +++ b/src/os/unix/ngx_process_cycle.h
-@@ -59,4 +59,8 @@ extern sig_atomic_t    ngx_reopen;
+@@ -59,4 +59,9 @@ extern sig_atomic_t    ngx_reopen;
  extern sig_atomic_t    ngx_change_binary;
  
  
 +#if NGX_HAVE_AUXILIARY
++#define NGX_AUX_PATCHED 1
 +void ngx_worker_aux_process_init(ngx_cycle_t *cycle);
 +#endif
 +

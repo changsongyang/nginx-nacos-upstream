@@ -1,7 +1,7 @@
 //
 // Created by dear on 22-5-28.
 //
-#include <ngx_auxiliary_module.h>
+#include "ngx_auxiliary_module.h"
 #include <ngx_channel.h>
 
 static void ngx_aux_process_cycle(ngx_cycle_t *cycle, void *data);
@@ -10,10 +10,12 @@ static void ngx_pass_open_channel(ngx_cycle_t *cycle);
 
 static ngx_int_t ngx_aux_init_master(ngx_cycle_t *cycle);
 
+static void *ngx_aux_create_conf(ngx_cycle_t *cycle);
+
 static ngx_core_module_t auxiliary_module = {
     ngx_string("auxiliary"),
-    NULL,  // 解析配置文件之前执行
-    NULL   // 解析配置文件之后执行
+    ngx_aux_create_conf,  // 解析配置文件之前执行
+    NULL                  // 解析配置文件之后执行
 };
 
 ngx_module_t ngx_auxiliary_module = {NGX_MODULE_V1,
@@ -33,6 +35,19 @@ ngx_module_t ngx_auxiliary_module = {NGX_MODULE_V1,
     (ngx_aux_proc_main_conf_t **) &(cf) \
         ->cycle->conf_ctx[ngx_auxiliary_module.index]
 
+static void *ngx_aux_create_conf(ngx_cycle_t *cycle) {
+    ngx_aux_proc_main_conf_t *mcf;
+    mcf = ngx_pcalloc(cycle->pool, sizeof(ngx_aux_proc_main_conf_t));
+    if (mcf == NULL) {
+        return NULL;
+    }
+    if (ngx_array_init(&mcf->process, cycle->pool, 4,
+                       sizeof(ngx_aux_proc_t *)) != NGX_OK) {
+        return NULL;
+    }
+    return mcf;
+}
+
 ngx_int_t ngx_aux_add_proc(ngx_conf_t *cf, ngx_aux_proc_t *proc) {
     ngx_aux_proc_main_conf_t **ptr, *mcf;
     ngx_aux_proc_t **n_proc;
@@ -42,25 +57,17 @@ ngx_int_t ngx_aux_add_proc(ngx_conf_t *cf, ngx_aux_proc_t *proc) {
 
     mcf = *ptr;
     if (mcf == NULL) {
-        mcf = ngx_palloc(cf->pool, sizeof(ngx_aux_proc_main_conf_t));
-        if (mcf == NULL) {
+        return NGX_ERROR;
+    }
+
+    n_proc = mcf->process.elts;
+    for (i = 0; i < mcf->process.nelts; i++) {
+        if (n_proc[i]->name.len == proc->name.len &&
+            ngx_strncmp(n_proc[i]->name.data, proc->name.data,
+                        proc->name.len) == 0) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "process \"%V\" exists",
+                               &proc->name);
             return NGX_ERROR;
-        }
-        if (ngx_array_init(&mcf->process, cf->pool, 4,
-                           sizeof(ngx_aux_proc_t *)) != NGX_OK) {
-            return NGX_ERROR;
-        }
-        *ptr = mcf;
-    } else {
-        n_proc = mcf->process.elts;
-        for (i = 0; i < mcf->process.nelts; i++) {
-            if (n_proc[i]->name.len == proc->name.len &&
-                ngx_strncmp(n_proc[i]->name.data, proc->name.data,
-                            proc->name.len) == 0) {
-                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "process \"%V\" exists", &proc->name);
-                return NGX_ERROR;
-            }
         }
     }
 
@@ -139,8 +146,10 @@ static void ngx_aux_process_cycle(ngx_cycle_t *cycle, void *data) {
     ngx_close_listening_sockets(cycle);
 
     cycle->connection_n = 512;
-    ngx_worker_aux_process_init(cycle);
 
+#ifdef NGX_AUX_PATCHED  // supress compile error
+    ngx_worker_aux_process_init(cycle);
+#endif
     len = ngx_sprintf((u_char *) buf, "auxiliary %V", &proc->name) -
           (u_char *) buf;
     buf[len] = 0;
@@ -174,7 +183,11 @@ static ngx_int_t ngx_aux_init_master(ngx_cycle_t *cycle) {
     ngx_aux_proc_t **proc;
     ngx_uint_t i, n;
 
-    if (ngx_process != NGX_PROCESS_SINGLE) {
+    if (ngx_process != NGX_PROCESS_SINGLE
+#ifndef NGX_AUX_PATCHED // run as aux process not need run in worker 0
+        && ngx_worker != 0
+#endif
+    ) {
         return NGX_OK;
     }
 
