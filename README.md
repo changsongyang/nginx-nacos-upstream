@@ -4,6 +4,7 @@
 nginx 订阅 nacos，实现 服务发现 和 配置 动态更新。 nacos 1.x 使用 udp 协议，nacos 2.x 使用 grpc 协议，本项目都支持
 - nginx 订阅 nacos 获取后端服务地址，不用在 upstream 中配置 ip 地址，后端服务发布下线自动更新。
 - nginx 订阅 nacos 获取配置，写入 nginx 标准变量。（配置功能，只支持 grpc 协议）。
+- nginx 自身作为服务，注册到 nacos。（只支持 grpc 协议）。
 
 ### 配置示例
 基于 NACOS 2.x 版本开发。openresty is required if using lua.
@@ -22,6 +23,25 @@ nacos {
     error_log logs/nacos.log info;
     default_group DEFAULT_GROUP; # 默认的nacos group name
     cache_dir cmake-build-debug/nacos/;
+    # local_ip 本机 ip 地址，不用于 物理连接，仅用于注册 或者 grpc 字段。不配置则扫描本机网卡获取
+    
+    ## 把 nginx 自己注册到 nacos. serviceName=nginx-server
+    register nginx-server {
+        # 注册到 nacos 的 ip，可选，不填则使用 nacos local_ip
+        # ip 127.0.0.1;
+        // 注册的端口
+        port 9999;
+        // 注册的 group name
+        group DEFAULT_GROUP;
+        // 集群名称
+        cluster daily-default;
+        // 注册的权重,nacos 的权重 是 0-1 之间的浮点数。与这里的权重是 1/100 的关系
+        weight 100;
+        // 注册服务的健康状态
+        healthy on;
+        // 自定义元数据
+        metadata from nginx;
+    }
 }
 
 http {
@@ -29,8 +49,10 @@ http {
         # 不需要写死 后端 ip。配置 nacos 服务名，nginx 自己订阅
         # server 127.0.0.1:8080;
         # 如果provider使用的spring，service_name 要和 spring.application.name一致
-        # 不知道 provider 端怎么写请参考 https://github.com/zhwaaaaaa/springmvc-nacos-registry
+        # 不知道 provider 端怎么写请参考 https://github.com/zhwaaaaaa/springmvc-nacos-register
         nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP;
+        # upstream 使用的集群。可以配置多个，优先级从前到后。
+        nacos_use_cluster $cluster_c1 $cluster_c2;
     }
     
     # 订阅 nacos 的配置。$n_var = "content"  $dd = "md5"
@@ -226,6 +248,76 @@ config_keys_bucket_size 128;
 udp_pool_size 8192;
 ```
 
+#### local_ip （默认 扫描本机网卡获取）
+用于 grpc 消息中的 local_ip 或 服务注册，(不用于物理连接)
+```
+local_ip 172.2.2.1;
+```
+
+#### register block 注册 nginx 为 nacos 服务
+```nginx
+nacos {
+    server_list ip1:8848 ip2:8848 ip3:8848;
+    grpc_server_list ip1:9848 ip2:9848 ip3:9848;
+    // ...
+    
+    register nginx-server1 {
+        port 80; # 端口
+    }
+    register nginx-server2 {
+        port 8080; # 端口
+    }
+}
+
+```
+#### register.port 服务注册的端口
+
+
+#### register.ip 服务注册的 ip
+```
+register nginx-server {
+    port 80;
+    ip 127.0.0.1;
+}
+```
+
+#### register.weight 服务注册的权重
+```
+register nginx-server {
+    weight 100; # nacos 上看到的权重是 weight / 100.0 
+}
+```
+
+#### register.group 服务注册group
+```
+register nginx-server {
+    // ...
+    group DEFAULT_GROUP; # 默认使用 nacos.default_group
+}
+```
+#### register.cluster 服务注册的cluster (默认 “DEFAULT”)
+```
+register nginx-server {
+    // ...
+    cluster default; # 默认 ”DEFAULT“
+}
+```
+#### register.healthy 服务注册的健康状态  on/off (默认 “on”)
+```
+register nginx-server {
+    // ...
+    healthy on; # 默认 ”on“
+}
+```
+#### register.metadata 服务注册 元数据
+```
+register nginx-server {
+    // ...
+    metadata from nginx;
+    metadata idc test;
+}
+```
+
 ### nacos_subscribe_service
 订阅 nacos 服务，这是 本项目核心指令。在 upstream 中，不需要配置 后端 ip 和 端口。
 通过 nacos_subscribe_service 指定服务名，nginx 会订阅 nacos 中的服务，自动填充。
@@ -233,7 +325,7 @@ udp_pool_size 8192;
 ```
 upstream backend {
     # 不需要写死 后端 ip。配置 nacos 服务名，nginx 自己订阅
-    # server 127.0.0.1:8080;
+    # server 127.0.0.1:8080; # 防止 nginx 启动时候报错
     # 如果provider使用的spring，service_name 要和 spring.application.name一致
     # 不知道 provider 端怎么写请参考 https://github.com/zhwaaaaaa/springmvc-nacos-registry
     # weight * nacos_weight 是 nginx 的权重，默认1 max_fails=1 fail_timeout 对应 nginx 的server 配置
@@ -242,14 +334,18 @@ upstream backend {
 ```
 
 ### nacos_use_cluster
-如果指定，则对应使用 cluster ip. 支持变量和字面量组合. 不指定，则使用所有集群 ip
+如果指定，则对应使用 cluster ip. 支持变量和字面量组合. 不指定，则使用所有集群 ip。
+可以配置多个，优先级从前到后（比如 c1 c2: 选择 IP 的时候，如果 c1 集群没有，则使用 c2 集群。如果都没有，则请求 失败 返回 500）
+配置了 此 cluster 之后，可以使用 内置 nginx 变量 $nacos_real_cluster 获取实际 使用的 cluster （用于日至，监控等）。
 ```
 set $cluster "DEFAULT";
 
 upstream backend {
     nacos_subscribe_service service_name=springmvc-nacos-demo group=DEFAULT_GROUP weight=100 max_fails=10 fail_timeout=10s;
-    nacos_use_cluster $cluster;
+    nacos_use_cluster $cluster1 $cluster2;
 }
+
+log_format "$host $uri ==> $nacos_real_cluster $upstream_addr";
 ```
 
 

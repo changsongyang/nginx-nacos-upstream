@@ -6,6 +6,7 @@
 #include <ngx_core.h>
 #include <ngx_nacos_grpc.h>
 #include <ngx_nacos_data.h>
+#include <yaij/api/yajl_gen.h>
 #include <yaij/api/yajl_parse.h>
 #include <yaij/api/yajl_tree.h>
 
@@ -36,6 +37,9 @@ static void ngx_nacos_naming_subscribe_timer_handler(ngx_event_t *ev);
 
 static ngx_int_t ngx_nacos_subscribe_service_handler(
     ngx_nacos_grpc_stream_t *st, ngx_nacos_payload_t *p);
+
+static ngx_int_t ngx_nacos_naming_register_handler(ngx_nacos_grpc_stream_t *st,
+                                                   ngx_nacos_payload_t *p);
 
 static ngx_int_t ngx_nacos_grpc_notify_address_shm(ngx_nacos_grpc_conn_t *gc,
                                                    yajl_val json);
@@ -115,15 +119,21 @@ static void ngx_nacos_naming_health_handler(ngx_event_t *ev) {
 static void ngx_nacos_naming_subscribe_timer_handler(ngx_event_t *ev) {
     ngx_nacos_grpc_stream_t *st;
     ngx_nacos_key_t **key;
-    ngx_uint_t idx, len;
+    ngx_uint_t idx, len, mi, ml;
     key = ngx_nacos_naming.nmcf->keys.elts;
     static u_char tmp[512];
     size_t b_len;
+    yajl_gen gen;
+    ngx_nacos_register_t **nrp;
+    ngx_str_t *m;
+    ngx_int_t rc;
 
     ngx_nacos_payload_t payload = {
         .type = SubscribeServiceRequest,
         .end = 1,
     };
+    gen = NULL;
+    rc = NGX_ERROR;
 
     if (ngx_nacos_naming.conn == NULL) {
         return;
@@ -133,9 +143,7 @@ static void ngx_nacos_naming_subscribe_timer_handler(ngx_event_t *ev) {
         st = ngx_nacos_grpc_request(ngx_nacos_naming.conn,
                                     ngx_nacos_subscribe_service_handler);
         if (st == NULL) {
-            ngx_add_timer(&ngx_nacos_naming.reconnect_timer,
-                          ngx_nacos_naming.reconnect_time);
-            return;
+            goto free;
         }
         st->handler_ctx = key[idx];
         b_len = ngx_snprintf(tmp, sizeof(tmp),
@@ -152,20 +160,163 @@ static void ngx_nacos_naming_subscribe_timer_handler(ngx_event_t *ev) {
         payload.json_str.len = b_len;
         if (ngx_nacos_grpc_send(st, &payload) != NGX_OK) {
             ngx_nacos_grpc_close_stream(st, 1);
-            ngx_add_timer(&ngx_nacos_naming.reconnect_timer,
-                          ngx_nacos_naming.reconnect_time);
-            return;
+            goto free;
+        }
+    }
+
+    // register service
+    len = ngx_nacos_naming.nmcf->register_services.nelts;
+    if (len > 0) {
+        nrp = ngx_nacos_naming.nmcf->register_services.elts;
+        payload.type = InstanceRequest;
+
+        for (idx = 0; idx < len; idx++) {
+            gen = yajl_gen_alloc(NULL);
+            if (yajl_gen_map_open(gen) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "module",
+                                sizeof("module") - 1) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "naming",
+                                sizeof("naming") - 1) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "type", 4) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "registerInstance",
+                                sizeof("registerInstance") - 1) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "serviceName",
+                                11) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, nrp[idx]->data_id.data,
+                                nrp[idx]->data_id.len) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "groupName", 9) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, nrp[idx]->group.data,
+                                nrp[idx]->group.len) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "namespace", 9) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen,
+                                ngx_nacos_naming.nmcf->service_namespace.data,
+                                ngx_nacos_naming.nmcf->service_namespace.len) !=
+                    yajl_gen_status_ok) {
+                goto free;
+            }
+            if (yajl_gen_string(gen, (const unsigned char *) "instance",
+                                sizeof("instance") - 1) != yajl_gen_status_ok ||
+                yajl_gen_map_open(gen) != yajl_gen_status_ok) {
+                goto free;
+            }
+
+            if (yajl_gen_string(gen, (const unsigned char *) "ip", 2) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, nrp[idx]->ip.data, nrp[idx]->ip.len) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "port", 4) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_integer(gen, (long long int) nrp[idx]->port) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "weight", 6) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_double(gen, (double) nrp[idx]->weight / 100.0) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "healthy", 7) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_bool(gen, nrp[idx]->healthy != 0) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "ephemeral", 9) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_bool(gen, 1) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "clusterName",
+                                11) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, nrp[idx]->cluster.data,
+                                nrp[idx]->cluster.len) != yajl_gen_status_ok ||
+                yajl_gen_string(gen, (const unsigned char *) "metadata", 8) !=
+                    yajl_gen_status_ok ||
+                yajl_gen_map_open(gen) != yajl_gen_status_ok) {
+                goto free;
+            }
+
+            m = nrp[idx]->metadata.elts;
+            for (ml = nrp[idx]->metadata.nelts, mi = 0; mi < ml; mi += 2) {
+                if (yajl_gen_string(gen, m[mi].data, m[mi].len) !=
+                        yajl_gen_status_ok ||
+                    yajl_gen_string(gen, m[mi + 1].data, m[mi + 1].len) !=
+                        yajl_gen_status_ok) {
+                    goto free;
+                }
+            }
+            if (yajl_gen_map_close(gen) !=
+                yajl_gen_status_ok) {  // close metadata
+                goto free;
+            }
+            if (yajl_gen_map_close(gen) !=
+                yajl_gen_status_ok) {  // close instance
+                goto free;
+            }
+            if (yajl_gen_map_close(gen) != yajl_gen_status_ok) {  // close root
+                goto free;
+            }
+
+            if (yajl_gen_get_buf(
+                    gen, (const unsigned char **) &payload.json_str.data,
+                    &payload.json_str.len) != yajl_gen_status_ok) {
+                goto free;
+            }
+
+            st = ngx_nacos_grpc_request(ngx_nacos_naming.conn,
+                                        ngx_nacos_naming_register_handler);
+            if (st == NULL) {
+                goto free;
+            }
+            st->handler_ctx = nrp[idx];
+            if (ngx_nacos_grpc_send(st, &payload)) {
+                ngx_nacos_grpc_close_stream(st, 1);
+                goto free;
+            }
+            yajl_gen_free(gen);
+            gen = NULL;
         }
     }
 
     ngx_add_timer(&ngx_nacos_naming.health_timer, 10000);
+    rc = NGX_OK;
+free:
+    if (gen != NULL) {
+        yajl_gen_free(gen);
+    }
+
+    if (rc != NGX_OK) {
+        ngx_add_timer(&ngx_nacos_naming.reconnect_timer,
+                      ngx_nacos_naming.reconnect_time);
+    }
 }
 
 static ngx_int_t ngx_nacos_subscribe_service_handler(
     ngx_nacos_grpc_stream_t *st, ngx_nacos_payload_t *p) {
+    ngx_nacos_key_t *key = st->handler_ctx;
     if (p->msg_state != pl_success || p->type != SubscribeServiceResponse) {
+        ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
+                      "nacos grpc subscribe naming %V@@%V error", &key->data_id,
+                      &key->group);
         return NGX_ERROR;
     }
+    ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
+                  "nacos grpc subscribe naming %V@@%V successfully",
+                  &key->data_id, &key->group);
+    return NGX_DONE;
+}
+
+static ngx_int_t ngx_nacos_naming_register_handler(ngx_nacos_grpc_stream_t *st,
+                                                   ngx_nacos_payload_t *p) {
+    ngx_nacos_register_t *nr;
+    nr = st->handler_ctx;
+    if (p->msg_state != pl_success || p->type != InstanceResponse) {
+        ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
+                      "nacos grpc register service %V@@%V error", &nr->data_id,
+                      &nr->group);
+        return NGX_ERROR;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, st->conn->conn->log, 0,
+                  "nacos grpc register service %V@@%V successfully",
+                  &nr->data_id, &nr->group);
     return NGX_DONE;
 }
 

@@ -171,6 +171,8 @@ if (NACOS)
     list(APPEND NGX_LINK_DIR /usr/local/lib)
     list(APPEND NGX_C_FILES
             modules/nacos/ngx_nacos_module.c
+            modules/nacos/ngx_nacos_core_module.c
+            modules/nacos/ngx_nacos_register_module.c
             modules/nacos/ngx_nacos_aux.c
             modules/nacos/ngx_nacos_http_parse.c
             modules/nacos/ngx_nacos_data.c

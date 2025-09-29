@@ -135,7 +135,7 @@ static ngx_int_t ngx_nacos_grpc_config_conn_handler(
     }
 
     if (state != nc_connected) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+        ngx_log_error(NGX_LOG_ERR, nacos_config.nmcf->error_log, 0,
                       "nacos grpc config connection error");
         ngx_add_timer(&nacos_config.reconnect_timer,
                       nacos_config.reconnect_time);
@@ -255,7 +255,7 @@ static ngx_int_t ngx_nacos_grpc_config_bi_handler(ngx_nacos_grpc_stream_t *st,
                                        p->json_str.len);
         requestId = yajl_tree_get_field(val, "requestId", yajl_t_string);
         if (requestId == NULL) {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+            ngx_log_error(NGX_LOG_ERR, nacos_config.nmcf->error_log, 0,
                           "NotifySubscriberRequest has no request id");
             goto err;
         }
@@ -272,18 +272,15 @@ static ngx_int_t ngx_nacos_grpc_config_bi_handler(ngx_nacos_grpc_stream_t *st,
     } else if (p->type == ConfigChangeNotifyRequest) {
         val = yajl_tree_parse_with_len((const char *) p->json_str.data,
                                        p->json_str.len);
-        if (ngx_nacos_check_response(st->conn->conn->log, val) != NGX_OK) {
-            goto err;
-        }
 
-        if (ngx_nacos_grpc_config_change_deal(st, val) != NGX_OK) {
-            ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
+        if (ngx_nacos_grpc_config_change_notified(st->conn, val) != NGX_OK) {
+            ngx_log_error(NGX_LOG_WARN, nacos_config.nmcf->error_log, 0,
                           "ConfigChangeNotifyRequest has not processed");
         }
 
         requestId = yajl_tree_get_field(val, "requestId", yajl_t_string);
         if (requestId == NULL) {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+            ngx_log_error(NGX_LOG_ERR, nacos_config.nmcf->error_log, 0,
                           "ConfigChangeNotifyRequest has no request id");
             goto err;
         }

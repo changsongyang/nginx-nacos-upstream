@@ -9,6 +9,12 @@
 #include <ngx_nacos_data.h>
 
 typedef struct {
+    ngx_str_t name;
+    ngx_array_t *cluster_lengths;
+    ngx_array_t *cluster_values;
+} ngx_http_nacos_cluster_t;
+
+typedef struct {
     ngx_http_upstream_srv_conf_t *uscf;
     ngx_http_upstream_init_pt original_init_upstream;
     ngx_str_t data_id;
@@ -16,9 +22,8 @@ typedef struct {
     ngx_uint_t weight;
     ngx_uint_t max_fails;
     time_t fail_timeout;
-    ngx_str_t cluster;
-    ngx_array_t *cluster_lengths;
-    ngx_array_t *cluster_values;
+    ngx_http_nacos_cluster_t *clusters;  // ngx_http_nacos_cluster_t
+    ngx_uint_t cluster_size;
 } ngx_http_nacos_srv_conf_t;
 
 typedef struct {
@@ -32,6 +37,11 @@ typedef struct {
     ngx_http_upstream_srv_conf_t *us;  // no cluster
     ngx_array_t *clustered_us;         // ngx_http_upstream_srv_conf_t
 } ngx_http_nacos_peers_t;
+
+typedef struct {
+    ngx_str_t cluster;
+    // TODO other log
+} ngx_http_nacos_ctx_t;
 
 typedef struct {
     ngx_http_nacos_peers_t *peers;
@@ -70,6 +80,11 @@ static ngx_int_t ngx_http_nacos_get_peer(ngx_peer_connection_t *pc, void *data);
 static void ngx_http_nacos_free_peer(ngx_peer_connection_t *pc, void *data,
                                      ngx_uint_t state);
 
+static ngx_int_t ngx_http_nacos_add_variables(ngx_conf_t *cf);
+
+static ngx_int_t ngx_http_nacos_real_cluster_variable(
+    ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
+
 #if (NGX_HTTP_SSL)
 
 static ngx_int_t ngx_http_nacos_peer_session(ngx_peer_connection_t *pc,
@@ -81,8 +96,8 @@ static void ngx_http_nacos_save_peer_session(ngx_peer_connection_t *pc,
 #endif
 
 static ngx_http_module_t ngx_http_nacos_module_ctx = {
-    NULL, /* preconfiguration */
-    NULL, /* postconfiguration */
+    ngx_http_nacos_add_variables, /* preconfiguration */
+    NULL,                         /* postconfiguration */
 
     NULL, /* create main configuration */
     NULL, /* init main configuration */
@@ -95,12 +110,16 @@ static ngx_http_module_t ngx_http_nacos_module_ctx = {
 };
 
 static ngx_command_t cmds[] = {
-    {ngx_string("nacos_subscribe_service"),
-     NGX_HTTP_UPS_CONF | NGX_CONF_1MORE, ngx_http_conf_use_nacos_address,
-     NGX_HTTP_SRV_CONF_OFFSET, 0, NULL},
-    {ngx_string("nacos_use_cluster"), NGX_HTTP_UPS_CONF | NGX_CONF_TAKE1,
+    {ngx_string("nacos_subscribe_service"), NGX_HTTP_UPS_CONF | NGX_CONF_1MORE,
+     ngx_http_conf_use_nacos_address, NGX_HTTP_SRV_CONF_OFFSET, 0, NULL},
+    {ngx_string("nacos_use_cluster"), NGX_HTTP_UPS_CONF | NGX_CONF_1MORE,
      ngx_http_conf_nacos_use_cluster, NGX_HTTP_SRV_CONF_OFFSET, 0, NULL},
     ngx_null_command};
+
+static ngx_http_variable_t ngx_http_nacos_vars[] = {
+    {ngx_string("nacos_real_cluster"), NULL,
+     ngx_http_nacos_real_cluster_variable, 0, NGX_HTTP_VAR_NOCACHEABLE, 0},
+    ngx_http_null_variable};
 
 ngx_module_t ngx_http_nacos_upstream_module = {NGX_MODULE_V1,
                                                &ngx_http_nacos_module_ctx,
@@ -247,33 +266,48 @@ static char *ngx_http_conf_use_nacos_address(ngx_conf_t *cf, ngx_command_t *cmd,
 
 static char *ngx_http_conf_nacos_use_cluster(ngx_conf_t *cf, ngx_command_t *cmd,
                                              void *conf) {
-    ngx_uint_t n;
+    ngx_uint_t i, n;
     ngx_http_script_compile_t sc;
     ngx_str_t *value;
+    ngx_http_nacos_cluster_t *cluster;
     ngx_http_nacos_srv_conf_t *nscf = conf;
 
-    if (nscf->cluster_lengths != NULL || nscf->cluster.len > 0) {
+    if (nscf->clusters != NULL) {
         return "is duplicate";
     }
 
+    n = cf->args->nelts;
+    cluster = ngx_pcalloc(cf->pool, sizeof(ngx_http_nacos_cluster_t) * (n - 1));
+    if (cluster == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    nscf->clusters = cluster;
+    nscf->cluster_size = n - 1;
+
     value = cf->args->elts;
-    nscf->cluster = value[1];
-
-    n = ngx_http_script_variables_count(&nscf->cluster);
-    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
-    sc.variables = n;
-
-    if (n) {
-        sc.cf = cf;
-        sc.source = &nscf->cluster;
-        sc.lengths = &nscf->cluster_lengths;
-        sc.values = &nscf->cluster_values;
-        sc.complete_lengths = 1;
-        sc.complete_values = 1;
-
-        if (ngx_http_script_compile(&sc) != NGX_OK) {
-            return NGX_CONF_ERROR;
+    for (i = 1; i < n; i++) {
+        if (value[i].len == 0) {
+            return "invalid cluster";
         }
+        cluster->name = value[i];
+
+        ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+        sc.variables = ngx_http_script_variables_count(&cluster->name);
+
+        if (sc.variables) {
+            sc.cf = cf;
+            sc.source = &cluster->name;
+            sc.lengths = &cluster->cluster_lengths;
+            sc.values = &cluster->cluster_values;
+            sc.complete_lengths = 1;
+            sc.complete_values = 1;
+
+            if (ngx_http_script_compile(&sc) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+        }
+        cluster++;
     }
 
     return NGX_CONF_OK;
@@ -355,7 +389,7 @@ static ngx_int_t ngx_http_nacos_add_server(ngx_http_nacos_peers_t *peers,
             continue;
         }
 
-        us = ngx_http_nacos_select_upstream(peers, &adr->cluster);
+        us = ngx_http_nacos_select_upstream(peers, &adr[i].cluster);
         if (us == NULL) {
             return NGX_ERROR;
         }
@@ -409,7 +443,7 @@ static ngx_int_t ngx_http_nacos_init_upstream(
 
     ncf = ngx_http_conf_upstream_srv_conf(us, ngx_http_nacos_upstream_module);
 
-    peers = ngx_http_nacos_create_peers(cf->log, ncf->cluster.len > 0, us);
+    peers = ngx_http_nacos_create_peers(cf->log, ncf->cluster_size > 0, us);
     if (peers == NULL) {
         return NGX_ERROR;
     }
@@ -519,6 +553,18 @@ static ngx_int_t ngx_http_nacos_init_peers(ngx_http_request_t *r,
     ngx_http_nacos_srv_conf_t *nusf;
     ngx_int_t rc;
     ngx_uint_t i, n;
+    ngx_http_nacos_cluster_t *ct;
+    ngx_uint_t ci, cn;
+    ngx_http_nacos_ctx_t *ctx;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_nacos_upstream_module);
+    if (ctx == NULL) {
+        ctx = ngx_pcalloc(r->pool, sizeof(*ctx));
+        if (ctx == NULL) {
+            return NGX_ERROR;
+        }
+        ngx_http_set_ctx(r, ctx, ngx_http_nacos_upstream_module);
+    }
 
     rrp = r->upstream->peer.data;
     if (rrp == NULL) {
@@ -541,30 +587,37 @@ static ngx_int_t ngx_http_nacos_init_peers(ngx_http_request_t *r,
         selected_us = peers->us;
     } else {
         selected_us = NULL;
-
-        ngx_memzero(&cluster, sizeof(cluster));
-        if (nusf->cluster_lengths == NULL) {
-            cluster = nusf->cluster;
-        } else {
-            if (ngx_http_script_run(r, &cluster, nusf->cluster_lengths->elts, 0,
-                                    nusf->cluster_values->elts) == NULL) {
+        ct = nusf->clusters;
+        for (ci = 0, cn = nusf->cluster_size; ci < cn; ++ci) {
+            ngx_memzero(&cluster, sizeof(cluster));
+            if (ct->cluster_lengths == NULL) {
+                cluster = ct->name;
+            } else {
+                if (ngx_http_script_run(r, &cluster, ct->cluster_lengths->elts,
+                                        0, ct->cluster_values->elts) == NULL) {
+                    return NGX_ERROR;
+                }
+            }
+            if (peers->clustered_us == NULL ||
+                peers->clustered_us->nelts == 0) {
                 return NGX_ERROR;
             }
-        }
-        if (peers->clustered_us == NULL || peers->clustered_us->nelts == 0) {
-            return NGX_ERROR;
-        }
-        n = peers->clustered_us->nelts;
-        uc = peers->clustered_us->elts;
-        for (i = 0; i < n; ++i) {
-            if (cluster.len == uc[i].host.len &&
-                ngx_strncmp(cluster.data, uc[i].host.data, cluster.len) == 0) {
-                selected_us = uc + i;
-                break;
+            n = peers->clustered_us->nelts;
+            uc = peers->clustered_us->elts;
+            for (i = 0; i < n; ++i) {
+                if (cluster.len == uc[i].host.len &&
+                    ngx_strncmp(cluster.data, uc[i].host.data, cluster.len) ==
+                        0) {
+                    selected_us = uc + i;
+                    ctx->cluster = cluster;
+                    goto found;
+                }
             }
+
+            ct++;
         }
     }
-
+found:
     if (selected_us == NULL) {
         return NGX_ERROR;
     }
@@ -674,3 +727,38 @@ static void ngx_http_nacos_save_peer_session(ngx_peer_connection_t *pc,
 }
 
 #endif
+
+static ngx_int_t ngx_http_nacos_add_variables(ngx_conf_t *cf) {
+    ngx_http_variable_t *var, *v;
+
+    for (v = ngx_http_nacos_vars; v->name.len; v++) {
+        var = ngx_http_add_variable(cf, &v->name, v->flags);
+        if (var == NULL) {
+            return NGX_ERROR;
+        }
+
+        var->get_handler = v->get_handler;
+        var->data = v->data;
+    }
+
+    return NGX_OK;
+}
+
+static ngx_int_t ngx_http_nacos_real_cluster_variable(
+    ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+    ngx_http_nacos_ctx_t *ctx;
+
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_nacos_upstream_module);
+    if (ctx == NULL || ctx->cluster.len == 0) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    v->len = ctx->cluster.len;
+    v->data = ctx->cluster.data;
+    return NGX_OK;
+}

@@ -48,6 +48,32 @@ ngx_module_link=ADDON
 
 . auto/module
 
+# =============== nacos core =============================
+
+ngx_module_type=EVENT
+ngx_module_name=ngx_nacos_core_module
+ngx_module_incs=
+ngx_module_deps=
+ngx_module_srcs=$ngx_addon_dir/ngx_nacos_core_module.c
+ngx_module_libs=
+ngx_module_order=
+ngx_module_link=ADDON
+
+. auto/module
+
+# =============== nacos register =============================
+
+ngx_module_type=EVENT
+ngx_module_name=ngx_nacos_register_module
+ngx_module_incs=
+ngx_module_deps=
+ngx_module_srcs=$ngx_addon_dir/ngx_nacos_register_module.c
+ngx_module_libs=
+ngx_module_order=
+ngx_module_link=ADDON
+
+. auto/module
+
 # =============== http upstream =============================
 
 ngx_module_type=HTTP

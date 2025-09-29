@@ -11,6 +11,7 @@
 
 #define NGX_NACOS_MODULE 0x4e41434f /*NACO*/
 #define NGX_NACOS_MAIN_CONF 0x02000000
+#define NGX_NACOS_REGISTER_CONF 0x10000000
 
 typedef struct {
     ngx_atomic_t wrlock;
@@ -55,6 +56,17 @@ struct ngx_nacos_dynamic_node_s {
 };*/
 
 typedef struct {
+    ngx_str_t data_id;
+    ngx_uint_t port;
+    ngx_str_t group;
+    ngx_str_t cluster;
+    ngx_str_t ip;
+    ngx_uint_t weight;
+    ngx_flag_t healthy;
+    ngx_array_t metadata;
+} ngx_nacos_register_t;
+
+typedef struct {
     ngx_array_t server_list;       // ngx_addr_t
     ngx_array_t grpc_server_list;  // ngx_addr_t
     ngx_resolver_t *resolver;
@@ -79,8 +91,9 @@ typedef struct {
     ngx_log_t *error_log;
     ngx_str_t cache_dir;
 
-    ngx_array_t keys;         //  ngx_nacos_key_t *
-    ngx_array_t config_keys;  // ngx_nacos_key_t *
+    ngx_array_t keys;               //  ngx_nacos_key_t *
+    ngx_array_t config_keys;        // ngx_nacos_key_t *
+    ngx_array_t register_services;  // ngx_nacos_register_t *
     ngx_nacos_key_t *dy_svc_config_key;
     ngx_shm_zone_t *zone;
     ngx_slab_pool_t *sh;
@@ -99,6 +112,11 @@ typedef struct {
     uint64_t version;
     ngx_array_t addrs;  // ngx_nacos_service_addr_t
 } ngx_nacos_service_addrs_t;
+
+typedef struct {
+    void *(*create_conf)(ngx_conf_t *cf);
+    char *(*init_conf)(ngx_conf_t *cf, void *conf);
+} ngx_nacos_module_t;
 
 ngx_nacos_main_conf_t *ngx_nacos_get_main_conf(ngx_conf_t *cf);
 
@@ -136,6 +154,5 @@ ngx_int_t nax_nacos_get_config(ngx_nacos_key_t *key,
 
 ngx_int_t ngx_nacos_naming_init(ngx_nacos_main_conf_t *nmcf);
 ngx_int_t ngx_nacos_config_init(ngx_nacos_main_conf_t *nmcf);
-
 
 #endif  // NGINX_NACOS_NGX_NACOS_H

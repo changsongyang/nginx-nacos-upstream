@@ -10,7 +10,7 @@ curl -sSL https://nginx.org/download/nginx-${nginx_version}.tar.gz -o nginx.tar.
 tar zxvf nginx.tar.gz
 mv nginx-${nginx_version} nginx
 cd nginx
-#patch -p1 < ../patch/nginx.patch
+patch -p1 < ../patch/nginx.patch
 
 
 ./configure \
@@ -33,4 +33,5 @@ cd nginx
 cd ..
 
 mkdir -p objs/logs
+mkdir -p objs/nacos
 rm -f nginx.tar.gz

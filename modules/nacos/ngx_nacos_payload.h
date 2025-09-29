@@ -19,6 +19,7 @@
     PC(ServerCheckRequest)              \
     PC(ServerLoaderInfoRequest)         \
     PC(ServerReloadRequest)             \
+    PC(InstanceRequest)                 \
     PC(BatchInstanceRequest)            \
     PC(NotifySubscriberRequest)         \
     PC(ServiceListRequest)              \
@@ -36,6 +37,7 @@
     PC(ServerCheckResponse)             \
     PC(ServerLoaderInfoResponse)        \
     PC(ServerReloadResponse)            \
+    PC(InstanceResponse)                \
     PC(BatchInstanceResponse)           \
     PC(NotifySubscriberResponse)        \
     PC(QueryServiceResponse)            \

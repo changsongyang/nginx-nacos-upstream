@@ -64,10 +64,6 @@ ngx_int_t ngx_nacos_aux_init(ngx_conf_t *cf) {
     ngx_int_t rv;
 
     ncf = ngx_nacos_get_main_conf(cf);
-    rv = ngx_nacos_fetch_local_ip(ncf, cf->pool);
-    if (rv != NGX_OK) {
-        goto end;
-    }
 
     if (ncf->username.len > 0 && ncf->password.len > 0) {
         body_len =
