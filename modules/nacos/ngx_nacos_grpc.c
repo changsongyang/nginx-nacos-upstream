@@ -24,7 +24,7 @@ static struct {
 };
 
 #define NGX_NACOS_GRPC_DEFAULT_GRPC_STATUS 10000
-#define NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL 360000
+#define NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL 90000
 #define NGX_NACOS_GRPC_CONFIG_BATCH_SIZE 100
 
 static ngx_nacos_grpc_stream_t *ngx_nacos_grpc_create_stream(
@@ -1430,6 +1430,8 @@ static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
             if (gc->handler(gc, nc_connected) != NGX_OK) {
                 return NGX_ERROR;
             }
+
+            ngx_add_timer(gc->conn->write, NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL);
         }
         return NGX_OK;
     }
@@ -1647,8 +1649,10 @@ static ngx_int_t ngx_nacos_grpc_update_send_window(ngx_nacos_grpc_conn_t *gc,
     rc = NGX_OK;
     st = ngx_nacos_grpc_find_stream(gc, st_id);
     if (st == NULL) {
-        ngx_log_error(NGX_LOG_WARN, gc->conn->log, 0,
-                      "nacos server unknown frame id");
+        if (st_id >= gc->next_stream_id) {
+            ngx_log_error(NGX_LOG_WARN, gc->conn->log, 0,
+                          "nacos server unknown frame id");
+        }
         return NGX_OK;
     }
 
@@ -1870,6 +1874,9 @@ static ngx_int_t ngx_nacos_grpc_encode_payload_init(
     en->payload.metadata.headers.arg = st->conn;
     en->payload.metadata.headers.funcs.encode = ngx_nacos_grpc_encode_user_pass;
 
+    en->payload.metadata.clientIp.arg = &st->conn->nmcf->local_ip;
+    en->payload.metadata.clientIp.funcs.encode = ngx_nacos_grpc_pb_encode_str;
+
     return pb_get_encoded_size(&en->encoded_len, Payload_fields, &en->payload)
                ? NGX_OK
                : NGX_ERROR;
@@ -2042,7 +2049,6 @@ static ngx_int_t ngx_nacos_grpc_send_win_update_frame(
     p[1] = (win_update >> 16) & 0xFF;
     p[2] = (win_update >> 8) & 0xFF;
     p[3] = win_update & 0xFF;
-    buf->stream->handler_ctx = (void *) win_update;
     rc = ngx_nacos_grpc_send_buf(buf, 0);
     if (rc == NGX_OK) {
         st->recv_win += win_update;

@@ -264,6 +264,7 @@ static void ngx_nacos_aux_login_http_write_handler(ngx_event_t *ev) {
     return;
 
 err:
+    c->error = 1;
     ngx_nacos_aux_close_login_http_connection(lc);
     ngx_add_timer(&aux_ctx.token_refresh_timer, 5000);
 }
@@ -380,8 +381,11 @@ err:
 static void ngx_nacos_aux_close_login_http_connection(
     ngx_nacos_aux_login_conn_t *lc) {
     ngx_pool_t *pool;
+    ngx_uint_t err;
     pool = lc->conn->pool;
+    err = lc->conn->error;
     ngx_close_connection(lc->conn);
+    lc->peer.free(&lc->peer, lc->peer.data, err ? NGX_NC_ERROR : NGX_NC_TIRED);
     ngx_destroy_pool(pool);
 }
 

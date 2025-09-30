@@ -487,7 +487,7 @@ static ngx_int_t ngx_nacos_server_check_handler(ngx_nacos_grpc_stream_t *st,
 
     ngx_str_set(
         &payload.json_str,
-        "{\"tenant\":\"\",\"clientVersion\":\"v2.10.0\",\"abilityTable\":{},"
+        "{\"tenant\":\"\",\"clientVersion\":\"nginx-nacos-module:v2.10.0\",\"abilityTable\":{},"
         "\"labels\":{\"source\":\"sdk\",\"module\":\"naming\"}}");
 
     if (ngx_nacos_grpc_send(bi_st, &payload) != NGX_OK) {
