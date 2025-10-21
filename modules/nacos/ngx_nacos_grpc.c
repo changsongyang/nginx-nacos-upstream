@@ -604,11 +604,12 @@ void ngx_nacos_grpc_close_stream(ngx_nacos_grpc_stream_t *st,
     if (force) {
         h = st->sending_bufs.head;
         while (h != NULL) {
-            st->buf_size--;
             n = h->next;
-            ngx_free(h);
+            ngx_nacos_grpc_free_buf(h->stream, h);
             h = n;
         }
+        st->sending_bufs.head = NULL;
+        st->sending_bufs.tail = NULL;
     }
 
     if (st->buf_size != 0) {
@@ -739,7 +740,7 @@ static ngx_int_t ngx_nacos_grpc_do_send(ngx_nacos_grpc_conn_t *gc) {
         }
         ngx_nacos_grpc_free_buf(st, h);
         if (st->buf_size == 0 && st->req_sent && st->end_stream) {
-            ngx_nacos_grpc_close_stream(h->stream, 0);
+            ngx_nacos_grpc_close_stream(st, 0);
         }
         h = n;
     }
@@ -1431,7 +1432,8 @@ static ngx_int_t ngx_nacos_grpc_parse_settings_frame(
                 return NGX_ERROR;
             }
 
-            ngx_add_timer(gc->conn->write, NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL);
+            ngx_add_timer(gc->conn->write,
+                          NGX_NACOS_GRPC_DEFAULT_PING_INTERVAL);
         }
         return NGX_OK;
     }
@@ -2128,4 +2130,3 @@ static ngx_int_t ngx_nacos_grpc_decode_payload(
 
     return NGX_OK;
 }
-
