@@ -136,8 +136,10 @@ cd openresty-1.25.3.2/bundle/nginx-1.25.3 && patch -p1 < ../../../nginx-nacos-up
 ```bash
 cd ../..
 sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
-./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos \
-  -add-module=../nginx-nacos-upstream/modules/nacos_lua
+./configure \
+  --add-module=../nginx-nacos-upstream/modules/auxiliary \
+  --add-module=../nginx-nacos-upstream/modules/nacos \
+  --add-module=../nginx-nacos-upstream/modules/nacos_lua
 make
 ```
 
@@ -363,7 +365,8 @@ nacos_config_var $var_name md5_var=$md5_var_name data_id=xxxx group=xxx default=
 nacos 变量功能让 nginx 的灵活性大大增强了。
 
 ### init_nacos_by_lua_file
-通过 lua 脚本初始化 nacos 配置。在这个脚本中 可以 require "nacos" 动态订阅 nacos 服务和配置. 类似于 openresty 的 init_worker_by_lua 不支持 yield
+通过 lua 脚本初始化 nacos 配置。在这个脚本中 可以 require "nacos" 动态订阅 nacos 服务和配置.
+类似于 openresty 的 init_worker_by_lua 不支持 yield.
 需要安装 [nacos_lua](modules/nacos_lua) 
 ```nginx
 init_nacos_by_lua_file /path/to/init.lua;
