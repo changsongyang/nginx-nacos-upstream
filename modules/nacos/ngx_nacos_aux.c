@@ -129,6 +129,8 @@ static ngx_int_t ngx_aux_nacos_proc_handler(ngx_cycle_t *cycle,
                                             ngx_aux_proc_t *p) {
     ngx_nacos_udp_conn_t *uc;
     ngx_int_t rc;
+    ngx_nacos_runner_t *runner;
+    ngx_uint_t i, len;
     ngx_nacos_main_conf_t *ncf = aux_ctx.ncf;
 
 #ifndef NGX_AUX_PATCHED
@@ -158,6 +160,12 @@ static ngx_int_t ngx_aux_nacos_proc_handler(ngx_cycle_t *cycle,
         if (rc != NGX_OK) {
             return NGX_ERROR;
         }
+    }
+
+    runner = ncf->runners.elts;
+    len = ncf->runners.nelts;
+    for (i = 0; i < len; i++) {
+        runner[i].handler(runner[i].data);
     }
 
     return NGX_OK;

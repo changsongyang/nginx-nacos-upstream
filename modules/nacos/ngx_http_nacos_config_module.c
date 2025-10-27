@@ -256,7 +256,6 @@ static ngx_int_t ngx_http_nacos_get_variable(ngx_http_request_t *r,
                                              uintptr_t data) {
     ngx_http_nacos_cfg_item_t *item;
     ngx_nacos_config_fetcher_t *fetcher;
-    ngx_uint_t md5_len;
     ngx_http_cleanup_t *cleanup;
     ngx_http_nacos_loc_conf_t *nlcf;
 
@@ -274,19 +273,13 @@ static ngx_int_t ngx_http_nacos_get_variable(ngx_http_request_t *r,
 
     fetcher = item->cft->fetcher;
 
-    if (fetcher->out_config.len == 0) {
+    if (fetcher->config.len == 0) {
         v->len = item->def_val.len;
         v->data = item->def_val.data;
     } else {
         // version md5_len;
-        md5_len = *(ngx_uint_t *) (fetcher->out_config.data + sizeof(size_t) +
-                                   sizeof(ngx_uint_t));
-        v->len =
-            *(ngx_uint_t *) (fetcher->out_config.data + sizeof(size_t) +
-                             sizeof(ngx_uint_t) + sizeof(ngx_uint_t) + md5_len);
-        v->data = fetcher->out_config.data + sizeof(size_t) +
-                  sizeof(ngx_uint_t) + sizeof(ngx_uint_t) + md5_len +
-                  sizeof(ngx_uint_t);
+        v->len = fetcher->config.len;
+        v->data = fetcher->config.data;
         ++fetcher->ref;
 
         cleanup = ngx_http_cleanup_add(r, 0);
@@ -305,7 +298,6 @@ static ngx_int_t ngx_http_nacos_md5_get_variable(ngx_http_request_t *r,
                                                  uintptr_t data) {
     ngx_http_nacos_cf_t *cft;
     ngx_nacos_config_fetcher_t *fetcher;
-    ngx_uint_t md5_len;
     ngx_http_cleanup_t *cleanup;
     ngx_http_nacos_loc_conf_t *nlcf;
 
@@ -323,17 +315,14 @@ static ngx_int_t ngx_http_nacos_md5_get_variable(ngx_http_request_t *r,
 
     fetcher = cft->fetcher;
 
-    if (fetcher->out_config.len == 0) {
+    if (fetcher->config.len == 0) {
         v->len = 0;
         v->data = NULL;
         v->not_found = 1;
     } else {
         // version md5_len;
-        md5_len = *(ngx_uint_t *) (fetcher->out_config.data + sizeof(size_t) +
-                                   sizeof(ngx_uint_t));
-        v->len = md5_len;
-        v->data = fetcher->out_config.data + sizeof(size_t) +
-                  sizeof(ngx_uint_t) + sizeof(ngx_uint_t);
+        v->len = fetcher->md5.len;
+        v->data = fetcher->md5.data;
         v->valid = 1;
 
         ++fetcher->ref;

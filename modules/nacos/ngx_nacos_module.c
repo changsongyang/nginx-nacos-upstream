@@ -66,7 +66,7 @@ static char *ngx_nacos_init_conf(ngx_cycle_t *cycle, void *conf) {
     {
         ha.bucket_size = ncf->keys_bucket_size;
         ha.max_size = ncf->keys_hash_max_size;
-        ha.key = ngx_hash_key_lc;
+        ha.key = ngx_hash_key;
         ha.name = "nacos_keys_hash";
         ha.hash = NULL;
 
@@ -106,7 +106,7 @@ static char *ngx_nacos_init_conf(ngx_cycle_t *cycle, void *conf) {
     {
         ha.bucket_size = ncf->config_keys_bucket_size;
         ha.max_size = ncf->config_keys_hash_max_size;
-        ha.key = ngx_hash_key_lc;
+        ha.key = ngx_hash_key;
         ha.name = "nacos_config_keys_hash";
         ha.hash = NULL;
 
@@ -224,4 +224,27 @@ end:
 ngx_nacos_main_conf_t *ngx_nacos_get_main_conf(ngx_conf_t *cf) {
     return (ngx_nacos_main_conf_t *)
         cf->cycle->conf_ctx[ngx_nacos_module.index];
+}
+
+char *ngx_nacos_add_runner(ngx_conf_t *cf, ngx_nacos_runner_handler_t handler,
+                           void *data) {
+    ngx_nacos_runner_t *r;
+    ngx_nacos_main_conf_t *nmcf = ngx_nacos_get_main_conf(cf);
+    if (nmcf == NULL) {
+        return "nacos block is required";
+    }
+
+    if (nmcf->runners.size == 0 &&
+        ngx_array_init(&nmcf->runners, cf->pool, 4,
+                       sizeof(ngx_nacos_runner_t)) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    r = ngx_array_push(&nmcf->runners);
+    if (r == NULL) {
+        return NGX_CONF_ERROR;
+    }
+    r->handler = handler;
+    r->data = data;
+    return NGX_CONF_OK;
 }

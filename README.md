@@ -5,6 +5,7 @@ nginx 订阅 nacos，实现 服务发现 和 配置 动态更新。 nacos 1.x �
 - nginx 订阅 nacos 获取后端服务地址，不用在 upstream 中配置 ip 地址，后端服务发布下线自动更新。
 - nginx 订阅 nacos 获取配置，写入 nginx 标准变量。（配置功能，只支持 grpc 协议）。
 - nginx 自身作为服务，注册到 nacos。（只支持 grpc 协议）。
+- openresty 中，使用 lua 脚本动态订阅 nacos 的服务和配置 .（只支持 grpc 协议）。
 
 ### 配置示例
 基于 NACOS 2.x 版本开发。openresty is required if using lua.
@@ -54,6 +55,8 @@ http {
         # upstream 使用的集群。可以配置多个，优先级从前到后。
         nacos_use_cluster $cluster_c1 $cluster_c2;
     }
+    # include a lua file subscribe nacos. look conf/nacos.lua. (require openresty add nacos_lua module)
+    init_nacos_by_lua_file ../conf/nacos.lua;
     
     # 订阅 nacos 的配置。$n_var = "content"  $dd = "md5"
     nacos_config_var $n_var data_id=aaabbbbccc group=DEFAULT_GROUP md5_var=$dd default=123456;
@@ -133,7 +136,8 @@ cd openresty-1.25.3.2/bundle/nginx-1.25.3 && patch -p1 < ../../../nginx-nacos-up
 ```bash
 cd ../..
 sudo apt install build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev
-./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos
+./configure --add-module=../nginx-nacos-upstream/modules/auxiliary --add-module=../nginx-nacos-upstream/modules/nacos \
+  -add-module=../nginx-nacos-upstream/modules/nacos_lua
 make
 ```
 
@@ -357,6 +361,39 @@ nacos_config_var $var_name md5_var=$md5_var_name data_id=xxxx group=xxx default=
 通过 $var_name 获取到 配置的内容。$md5_var_name 可以获取到配置的 md5。
 如果nacos中指定的 data_id 和 group 不存在，使用 默认值 def_value
 nacos 变量功能让 nginx 的灵活性大大增强了。
+
+### init_nacos_by_lua_file
+通过 lua 脚本初始化 nacos 配置。在这个脚本中 可以 require "nacos" 动态订阅 nacos 服务和配置. 类似于 openresty 的 init_worker_by_lua 不支持 yield
+需要安装 [nacos_lua](modules/nacos_lua) 
+```nginx
+init_nacos_by_lua_file /path/to/init.lua;
+```
+- nacos.log(LEVEL, "xxxxx") print log
+- nacos.listen_config(data_id, group, listener) listen nacos config change. listener is a function
+- nacos.subscribe_service(service_name, group, listener) listen nacos service change, listener is a function
+- 订阅到的内容可以通过 ngx.shared.XXX 跟worker 进程共享: 
+```lua
+local nacos = require "nacos"
+local function conf_listener(data)
+    -- data is a table like {data_id: "xxxx", group: "xxxx", content: "xxxx", md5: "xxxx"}
+    print("data_id: " .. data.data_id .. " group: " .. data.group .. " content: " .. data.content)
+end
+local function service_listener(data)
+    -- data is a table like :
+    --  {service_name: "xxxx", group: "xxxx", 
+    --     [1]: {ip: "10.10.10.10", port: 8080, weight: 100, cluster: "DEFAULT"}, 
+    --     [2]: {ip: "10.10.10.11", port: 8080, weight: 100, cluster: "DEFAULT"} }
+end
+local unlisten_conf = nacos.listen_config("gateway.server.route.json", "pro", conf_listener)
+-- unlisten_conf() can unlisten the conf listener.
+-- unlisten_conf.data_id is the data_id of the conf, nlisten_conf.group is the group of the conf
+
+local unlisten_service = nacos.subscribe_service("gateway.server.route.json", "test", service_listener)
+-- unlisten_service() can unlisten the service listener
+-- unlisten_service.service_name is the service_name of the service, unlisten_service.group is the group of the conf
+
+nacos.log(ngx.INFO, "listen start ...")
+```
 
 # 开发计划
  * 通过 UDP 协议订阅 nacos 服务。（✅）

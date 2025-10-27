@@ -772,7 +772,7 @@ ngx_nacos_key_t *ngx_nacos_hash_find_key(ngx_hash_t *key_hash, u_char *k) {
         if (c == '@' && *(p + 1) == '@') {
             valid = 1;
         }
-        *p = c = ngx_tolower(c);
+        c = ngx_tolower(c);
         hash = ngx_hash(hash, c);
     }
     if (!valid) {
@@ -883,7 +883,8 @@ char *find_first_non_loopback_address() {
 #endif
 }
 
-ngx_int_t ngx_nacos_fetch_local_ip(ngx_nacos_main_conf_t *mcf, ngx_pool_t *pool) {
+ngx_int_t ngx_nacos_fetch_local_ip(ngx_nacos_main_conf_t *mcf,
+                                   ngx_pool_t *pool) {
     char *addr = find_first_non_loopback_address();
     if (addr == NULL) {
         return NGX_ERROR;
@@ -894,5 +895,95 @@ ngx_int_t ngx_nacos_fetch_local_ip(ngx_nacos_main_conf_t *mcf, ngx_pool_t *pool)
     ngx_memcpy(mcf->local_ip.data, addr, mcf->local_ip.len);
     mcf->local_ip.data[mcf->local_ip.len] = '\0';
     free(addr);
+    return NGX_OK;
+}
+
+ngx_int_t nax_nacos_get_addrs(ngx_nacos_key_t *key, ngx_uint_t *version,
+                              ngx_nacos_service_addrs_t *out_addrs) {
+    ngx_uint_t old_ver, new_ver;
+    ngx_int_t rc;
+    ngx_nacos_key_ctx_t *ctx = key->ctx;
+    old_ver = *version;
+    rc = NGX_DECLINED;
+    if (key->use_shared) {
+        ngx_rwlock_rlock(&ctx->wrlock);
+    }
+    if (old_ver != (new_ver = ctx->version)) {
+        rc = ngx_nacos_deep_copy_addrs(ctx->data, out_addrs);
+    }
+    if (key->use_shared) {
+        ngx_rwlock_unlock(&ctx->wrlock);
+    }
+    *version = new_ver;
+    return rc;
+}
+
+ngx_int_t nax_nacos_get_config(ngx_nacos_key_t *key,
+                               ngx_nacos_config_fetcher_t *out) {
+    ngx_uint_t old_ver, new_ver;
+    ngx_nacos_key_ctx_t *ctx;
+    char *out_mem;
+    u_char *c;
+    size_t out_len, last_len = 0;
+    ngx_flag_t use_shared, suc;
+
+    out->config.len = 0;
+    out->md5.len = 0;
+
+    use_shared = key->use_shared;
+    ctx = key->ctx;
+    old_ver = out->version;
+    out_mem = NULL;
+    for (;;) {
+        if (use_shared) {
+            ngx_rwlock_rlock(&ctx->wrlock);
+        }
+        new_ver = ctx->version;
+        out_len = ctx->data ? *(size_t *) ctx->data : 0;
+        if (use_shared) {
+            ngx_rwlock_unlock(&ctx->wrlock);
+        }
+
+        if (new_ver == old_ver) {
+            return NGX_DECLINED;
+        }
+        if (out_len == 0) {
+            break;
+        }
+        if (out_mem == NULL || out_len > last_len) {
+            last_len = out_len;
+            out_mem = ngx_palloc(out->pool, out_len);
+            if (out_mem == NULL) {
+                return NGX_ERROR;
+            }
+        }
+
+        if (use_shared) {
+            ngx_rwlock_rlock(&ctx->wrlock);
+        }
+        if (new_ver == ctx->version) {
+            suc = 1;
+            ngx_memcpy(out_mem, ctx->data, out_len);
+        } else {
+            suc = 0;
+        }
+        if (use_shared) {
+            ngx_rwlock_unlock(&ctx->wrlock);
+        }
+        if (suc) {
+            break;
+        }
+    }
+    // length version md5_len md5 content_len content
+    c = (u_char *) out_mem;
+    c += sizeof(size_t) + sizeof(ngx_uint_t);
+    out->md5.len = *(ngx_uint_t *) c;
+    c += sizeof(ngx_uint_t);
+    out->md5.data = c;
+    c += out->md5.len;
+    out->config.len = *(ngx_uint_t *) c;
+    c += sizeof(ngx_uint_t);
+    out->config.data = c;
+    out->version = new_ver;
     return NGX_OK;
 }

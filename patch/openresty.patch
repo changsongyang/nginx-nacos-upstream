@@ -17,7 +17,7 @@ index d04d91e..0802c29 100644
      return rv;
  }
 diff --git a/src/os/unix/ngx_process_cycle.c b/src/os/unix/ngx_process_cycle.c
-index cbe6dc7..a8bd7e7 100644
+index cbe6dc7..cad0913 100644
 --- a/src/os/unix/ngx_process_cycle.c
 +++ b/src/os/unix/ngx_process_cycle.c
 @@ -10,6 +10,9 @@
@@ -70,28 +70,32 @@ index cbe6dc7..a8bd7e7 100644
              ngx_start_privileged_agent_processes(cycle, 0);
              live = 1;
          }
-@@ -1309,3 +1324,10 @@ ngx_cache_loader_process_handler(ngx_event_t *ev)
+@@ -1309,3 +1324,13 @@ ngx_cache_loader_process_handler(ngx_event_t *ev)
  
      exit(0);
  }
 +
 +
 +#if NGX_HAVE_AUXILIARY
-+void ngx_worker_aux_process_init(ngx_cycle_t *cycle){
++void ngx_worker_aux_process_init(ngx_cycle_t *cycle) {
 +  ngx_worker_process_init(cycle, -1);
++}
++void ngx_worker_aux_process_exit(ngx_cycle_t *cycle) {
++  ngx_worker_process_exit(cycle);
 +}
 +#endif
 diff --git a/src/os/unix/ngx_process_cycle.h b/src/os/unix/ngx_process_cycle.h
-index 5149396..02a34d2 100644
+index 5149396..e2776e0 100644
 --- a/src/os/unix/ngx_process_cycle.h
 +++ b/src/os/unix/ngx_process_cycle.h
-@@ -59,4 +59,9 @@ extern sig_atomic_t    ngx_reopen;
+@@ -59,4 +59,10 @@ extern sig_atomic_t    ngx_reopen;
  extern sig_atomic_t    ngx_change_binary;
  
  
 +#if NGX_HAVE_AUXILIARY
 +#define NGX_AUX_PATCHED 1
 +void ngx_worker_aux_process_init(ngx_cycle_t *cycle);
++void ngx_worker_aux_process_exit(ngx_cycle_t *cycle);
 +#endif
 +
  #endif /* _NGX_PROCESS_CYCLE_H_INCLUDED_ */

@@ -3,8 +3,6 @@ project(nginx_nacos C)
 
 set(CMAKE_C_STANDARD 90)
 
-set(CMAKE_C_FLAGS "-W -Wall -Wpointer-arith -Wno-unused-parameter -Werror=uninitialized -Werror -Wreturn-type -Wno-deprecated-declarations")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -W -Wall -Wno-unused-parameter -Werror=uninitialized")
 
 set(NGX_C_FILES nginx/src/core/nginx.c
         nginx/src/core/ngx_log.c
@@ -139,7 +137,9 @@ set(NGX_C_FILES nginx/src/core/nginx.c
         nginx/src/http/modules/ngx_http_upstream_zone_module.c
 )
 
-set(NGX_INC_DIR nginx/src/core
+set(NGX_INC_DIR
+        ${CMAKE_BINARY_DIR}
+        nginx/src/core
         nginx/src/event
         nginx/src/event/modules
         nginx/src/os/unix
@@ -150,8 +150,9 @@ set(NGX_INC_DIR nginx/src/core
 
 set(NGX_LIBS dl pthread pcre z)
 set(OPENSSL YES)
+OPTION(LUA "use lua" YES)
+OPTION(NACOS "use nacos" YES)
 
-set(NACOS YES)
 if (OPENSSL)
     list(APPEND NGX_C_FILES nginx/src/event/ngx_event_openssl.c
             nginx/src/event/ngx_event_openssl_stapling.c
@@ -188,7 +189,12 @@ if (NACOS)
             modules/nacos/ngx_nacos_http_v2_huff_decode.c
             modules/nacos/ngx_nacos_http_v2_huff_encode.c
             ${BACKUP_PROTO}
-            )
+    )
+
+    if (LUA)
+        list(APPEND NGX_C_FILES
+                modules/nacos_lua/ngx_http_nacos_lua_module.c)
+    endif ()
 
     list(APPEND NGX_C_FILES
             modules/nacos/yaij/yajl.c
@@ -203,7 +209,7 @@ if (NACOS)
             modules/nacos/pb/pb_common.c
             modules/nacos/pb/pb_decode.c
             modules/nacos/pb/pb_encode.c
-            )
+    )
 endif ()
 
 
@@ -223,9 +229,32 @@ endif ()
 
 list(APPEND NGX_C_FILES nginx/objs/ngx_modules.c)
 
-message(STATUS ${NGX_LIBS})
+
+if (LUA)
+    set(LUAJIT_DIR ${CMAKE_SOURCE_DIR}/openresty/LuaJIT)
+    include(cmake/LuaJIT.cmake)
+
+    set(LUA_CJSON_DIR ${CMAKE_SOURCE_DIR}/openresty/lua-cjson)
+    include(cmake/LuaCjson.cmake)
+
+    set(LUA_NGX_DIR ${CMAKE_SOURCE_DIR}/openresty/ngx_lua)
+    include(cmake/LuaNgxModule.cmake)
+
+    set(LUA_NGX_DIR ${CMAKE_SOURCE_DIR}/openresty/ngx_lua_upstream)
+    include(cmake/LuaNgxUpstream.cmake)
+
+    list(APPEND NGX_LIBS luajit::lib luajit::header cjson)
+
+endif ()
+
+
+message(STATUS ${CMAKE_C_FLAGS})
 
 add_executable(nginx_nacos ${NGX_C_FILES} ${NGX_H_FILES})
 target_include_directories(nginx_nacos PRIVATE ${NGX_INC_DIR})
 target_link_directories(nginx_nacos PRIVATE ${NGX_LINK_DIR})
 target_link_libraries(nginx_nacos ${NGX_LIBS})
+target_compile_options(nginx_nacos PRIVATE -W -Wall
+        -Wpointer-arith -Werror=unused-function -Wno-unused-parameter
+        -Werror=uninitialized -Werror -Wreturn-type -Wno-deprecated-declarations)
+target_link_options(nginx_nacos PRIVATE -rdynamic)

@@ -84,7 +84,7 @@ void ngx_aux_start_auxiliary_processes(ngx_cycle_t *cycle, ngx_uint_t respawn) {
     ngx_aux_proc_t **proc;
     ngx_uint_t i, n;
     size_t len;
-    char buf[256];
+    char buf[256], *name;
 
     mcf = (ngx_aux_proc_main_conf_t *) ngx_get_conf(cycle->conf_ctx,
                                                     ngx_auxiliary_module);
@@ -101,9 +101,16 @@ void ngx_aux_start_auxiliary_processes(ngx_cycle_t *cycle, ngx_uint_t respawn) {
         buf[len] = 0;
         ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                       "start auxiliary processes %s", buf);
+        name = ngx_palloc(cycle->pool, len + 1);
+        if (name == NULL) {
+            name = (char *) proc[i]->name.data;
+        } else {
+            ngx_memcpy(name, buf, len);
+            name[len] = 0;
+        }
 
         ngx_spawn_process(
-            cycle, ngx_aux_process_cycle, proc[i], buf,
+            cycle, ngx_aux_process_cycle, proc[i], name,
             respawn ? NGX_PROCESS_JUST_RESPAWN : NGX_PROCESS_RESPAWN);
         ngx_pass_open_channel(cycle);
     }
@@ -140,6 +147,9 @@ static void ngx_aux_process_cycle(ngx_cycle_t *cycle, void *data) {
     size_t len;
     ngx_aux_proc_t *proc = data;
     ngx_process = NGX_PROCESS_HELPER;
+#if defined(HAVE_PRIVILEGED_PROCESS_PATCH) && !NGX_WIN32
+    ngx_is_privileged_agent = 1;
+#endif
 
     ngx_use_accept_mutex = 0;
 
@@ -165,7 +175,9 @@ static void ngx_aux_process_cycle(ngx_cycle_t *cycle, void *data) {
     for (;;) {
         if (ngx_terminate || ngx_quit) {
             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
-            exit(0);
+#ifdef NGX_AUX_PATCHED  // supress compile error
+            ngx_worker_aux_process_exit(cycle);
+#endif
         }
 
         if (ngx_reopen) {
@@ -184,7 +196,7 @@ static ngx_int_t ngx_aux_init_master(ngx_cycle_t *cycle) {
     ngx_uint_t i, n;
 
     if (ngx_process != NGX_PROCESS_SINGLE
-#ifndef NGX_AUX_PATCHED // run as aux process not need run in worker 0
+#ifndef NGX_AUX_PATCHED  // run as aux process not need run in worker 0
         && ngx_worker != 0
 #endif
     ) {

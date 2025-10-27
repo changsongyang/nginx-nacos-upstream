@@ -6,3 +6,4 @@
 /nginx*
 /CMakeCache.txt
 /logs
+/openresty*

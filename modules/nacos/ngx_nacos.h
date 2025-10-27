@@ -35,26 +35,6 @@ typedef struct {
     ngx_nacos_key_t **key_ptr;
 } ngx_nacos_sub_t;
 
-/** TODO dynamic  subscribe/unsubscribe service or config
-typedef struct ngx_nacos_dynamic_node_s ngx_nacos_dynamic_node_t;
-
-typedef struct ngx_nacos_dynamic_s ngx_nacos_dynamic_t;
-
-struct ngx_nacos_dynamic_s {
-    ngx_nacos_dynamic_node_t **nodes;
-    ngx_uint_t node_count;
-    ngx_uint_t node_capacity;
-    ngx_uint_t node_version;
-};
-
-struct ngx_nacos_dynamic_node_s {
-    ngx_str_t ip;
-    ngx_str_t port;
-    ngx_str_t weight;
-    ngx_str_t cluster;
-    ngx_str_t metadata;
-};*/
-
 typedef struct {
     ngx_str_t data_id;
     ngx_uint_t port;
@@ -65,6 +45,12 @@ typedef struct {
     ngx_flag_t healthy;
     ngx_array_t metadata;
 } ngx_nacos_register_t;
+
+typedef void (*ngx_nacos_runner_handler_t)(void *data);
+typedef struct {
+    ngx_nacos_runner_handler_t handler;
+    void *data;
+} ngx_nacos_runner_t;
 
 typedef struct {
     ngx_array_t server_list;       // ngx_addr_t
@@ -94,6 +80,7 @@ typedef struct {
     ngx_array_t keys;               //  ngx_nacos_key_t *
     ngx_array_t config_keys;        // ngx_nacos_key_t *
     ngx_array_t register_services;  // ngx_nacos_register_t *
+    ngx_array_t runners;            // ngx_nacos_runner_t
     ngx_nacos_key_t *dy_svc_config_key;
     ngx_shm_zone_t *zone;
     ngx_slab_pool_t *sh;
@@ -132,11 +119,15 @@ ngx_int_t ngx_nacos_aux_get_addr(ngx_peer_connection_t *pc, void *data);
 ngx_int_t nax_nacos_get_addrs(ngx_nacos_key_t *key, ngx_uint_t *version,
                               ngx_nacos_service_addrs_t *out_addrs);
 
+char *ngx_nacos_add_runner(ngx_conf_t *cf, ngx_nacos_runner_handler_t handler,
+                           void *data);
+
 typedef struct {
     ngx_pool_t *pool;
     ngx_uint_t ref;
     ngx_uint_t version;
-    ngx_str_t out_config;
+    ngx_str_t config;
+    ngx_str_t md5;
 } ngx_nacos_config_fetcher_t;
 
 ngx_int_t nax_nacos_get_config(ngx_nacos_key_t *key,
@@ -154,5 +145,30 @@ ngx_int_t nax_nacos_get_config(ngx_nacos_key_t *key,
 
 ngx_int_t ngx_nacos_naming_init(ngx_nacos_main_conf_t *nmcf);
 ngx_int_t ngx_nacos_config_init(ngx_nacos_main_conf_t *nmcf);
+
+#ifdef NGX_HAVE_NACOS_DYNAMIC_KEY
+typedef struct ngx_nacos_dynamic_key_s ngx_nacos_dynamic_key_t;
+
+typedef ngx_int_t (*ngx_nacos_dynamic_key_handler_t)(
+    ngx_nacos_dynamic_key_t *key, ngx_nacos_key_t *nk);
+
+ngx_nacos_dynamic_key_t *ngx_nacos_dynamic_config_key_add(ngx_str_t *data_id,
+                                                          ngx_str_t *group);
+
+void ngx_nacos_dynamic_config_key_del(ngx_nacos_dynamic_key_t *key);
+
+ngx_nacos_dynamic_key_t *ngx_nacos_dynamic_naming_key_add(ngx_str_t *data_id,
+                                                          ngx_str_t *group);
+
+void ngx_nacos_dynamic_naming_key_del(ngx_nacos_dynamic_key_t *key);
+
+struct ngx_nacos_dynamic_key_s {
+    ngx_pool_t *pool;
+    ngx_str_t data_id;
+    ngx_str_t group;
+    void *handler_ctx;
+    ngx_nacos_dynamic_key_handler_t handler;
+};
+#endif  // NGX_HAVE_NACOS_DYNAMIC_KEY
 
 #endif  // NGINX_NACOS_NGX_NACOS_H
