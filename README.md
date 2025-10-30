@@ -383,16 +383,17 @@ local function conf_listener(data)
 end
 local function service_listener(data)
     -- data is a table like :
-    --  {service_name: "xxxx", group: "xxxx", 
-    --     [1]: {ip: "10.10.10.10", port: 8080, weight: 100, cluster: "DEFAULT"}, 
-    --     [2]: {ip: "10.10.10.11", port: 8080, weight: 100, cluster: "DEFAULT"} }
+    --  {service_name: "xxxx", group: "xxxx", "instances": [{ip: "10.10.10.10", port: 8080, weight: 100, cluster: "DEFAULT"}, 
+    --  {ip: "10.10.10.11", port: 8080, weight: 100, cluster: "DEFAULT"}] }
 end
 local unlisten_conf = nacos.listen_config("gateway.server.route.json", "pro", conf_listener)
 -- unlisten_conf() can unlisten the conf listener.
+-- unlisten_conf.notified is number of times that the conf listener notified.
 -- unlisten_conf.data_id is the data_id of the conf, nlisten_conf.group is the group of the conf
 
 local unlisten_service = nacos.subscribe_service("gateway.server.route.json", "test", service_listener)
 -- unlisten_service() can unlisten the service listener
+-- unlisten_service.notified is number of times that the conf listener notified.
 -- unlisten_service.service_name is the service_name of the service, unlisten_service.group is the group of the conf
 
 nacos.log(ngx.INFO, "listen start ...")

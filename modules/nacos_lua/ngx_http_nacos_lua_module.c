@@ -566,7 +566,7 @@ static int ngx_http_nacos_lua_handler_index(lua_State *L) {
         return 1;
     }
     if (strcmp(key, "notified") == 0) {
-        lua_pushboolean(L, (int) ctx->notified);
+        lua_pushinteger(L, (int) ctx->notified);
         return 1;
     }
 
@@ -637,12 +637,13 @@ static ngx_int_t ngx_http_nacos_dynamic_naming_handler(
     }
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->callback_ref);
-    lua_createtable(L, (int) out_addrs.addrs.nelts, 2);
+    lua_createtable(L, 0, 2);
     lua_pushlstring(L, (char *) key->data_id.data, key->data_id.len);
     lua_setfield(L, -2, "service_name");
     lua_pushlstring(L, (char *) key->group.data, key->group.len);
     lua_setfield(L, -2, "group");
 
+    lua_createtable(L, (int) out_addrs.addrs.nelts, 0);
     addr = out_addrs.addrs.elts;
     for (i = 0; i < out_addrs.addrs.nelts; i++) {
         lua_createtable(L, 0, 4);
@@ -656,6 +657,7 @@ static ngx_int_t ngx_http_nacos_dynamic_naming_handler(
         lua_setfield(L, -2, "cluster");
         lua_rawseti(L, -2, (int) i + 1);
     }
+    lua_setfield(L, -2, "instances");
 
     rv = lua_pcall(L, 1, 0, 0);
     if (rv) {
@@ -702,7 +704,7 @@ static ngx_int_t ngx_http_nacos_dynamic_config_handler(
     lua_pushlstring(L, (char *) fetcher.md5.data, fetcher.md5.len);
     lua_setfield(L, -2, "md5");
     lua_pushlstring(L, (char *) fetcher.config.data, fetcher.config.len);
-    lua_setfield(L, -2, "data");
+    lua_setfield(L, -2, "content");
     lua_pushlstring(L, (char *) key->data_id.data, key->data_id.len);
     lua_setfield(L, -2, "data_id");
     lua_pushlstring(L, (char *) key->group.data, key->group.len);
