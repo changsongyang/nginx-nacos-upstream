@@ -49,6 +49,7 @@ struct ngx_nacos_grpc_conn_s {
     nc_grpc_event_handler handler;
     ngx_connection_t *conn;
     ngx_pool_t *pool;
+    ngx_str_t local_addr;
     uint32_t next_stream_id;
     enum { init, connecting, prepare_grpc, working } stat;
     ngx_peer_connection_t peer;
@@ -71,8 +72,6 @@ struct ngx_nacos_grpc_conn_s {
     ngx_uint_t frame_stream_id;
     u_char frame_type;
     u_char frame_flags;
-    unsigned frame_start : 1;
-    unsigned frame_end : 1;
 };
 
 struct ngx_nacos_grpc_stream_s {

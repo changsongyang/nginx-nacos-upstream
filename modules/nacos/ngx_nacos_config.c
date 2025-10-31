@@ -90,6 +90,8 @@ static ngx_int_t ngx_nacos_grpc_send_config_query_request(
     ngx_nacos_grpc_conn_t *gc, ngx_str_t *group, ngx_str_t *data_id,
     ngx_nacos_key_t *key);
 
+#define NGX_NACOS_MD5_LEN 128
+
 ngx_int_t ngx_nacos_config_init(ngx_nacos_main_conf_t *nmcf) {
     nacos_config.nmcf = nmcf;
 
@@ -248,7 +250,7 @@ static ngx_int_t ngx_nacos_config_server_check_handler(
     if (ngx_nacos_grpc_send(bi_st, &payload) != NGX_OK) {
         goto err;
     }
-    if (!YAJL_IS_TRUE(san)) {
+    if (!nacos_config.support_ability_negotiation) {
         ngx_add_timer(&nacos_config.subscribe_timer, 1000);
     }
     if (val != NULL) {
@@ -283,12 +285,6 @@ static ngx_int_t ngx_nacos_grpc_config_bi_handler(ngx_nacos_grpc_stream_t *st,
             ngx_del_timer(&nacos_config.subscribe_timer);
         }
 
-        payload.type = SetupAckResponse;
-        ngx_str_set(&payload.json_str, "{\"resultCode\":200}");
-        if (ngx_nacos_grpc_send(st, &payload) != NGX_OK) {
-            goto err;
-        }
-
         if (nacos_config.support_ability_negotiation) {
             ngx_nacos_config_subscribe_timer_handler(
                 &nacos_config.subscribe_timer);
@@ -319,11 +315,6 @@ static ngx_int_t ngx_nacos_grpc_config_bi_handler(ngx_nacos_grpc_stream_t *st,
         val = yajl_tree_parse_with_len((const char *) p->json_str.data,
                                        p->json_str.len);
 
-        if (ngx_nacos_grpc_config_change_notified(st->conn, val) != NGX_OK) {
-            ngx_log_error(NGX_LOG_WARN, nacos_config.nmcf->error_log, 0,
-                          "ConfigChangeNotifyRequest has not processed");
-        }
-
         requestId = yajl_tree_get_field(val, "requestId", yajl_t_string);
         if (requestId == NULL) {
             ngx_log_error(NGX_LOG_ERR, nacos_config.nmcf->error_log, 0,
@@ -340,6 +331,11 @@ static ngx_int_t ngx_nacos_grpc_config_bi_handler(ngx_nacos_grpc_stream_t *st,
         payload.json_str.data = buf;
         if (ngx_nacos_grpc_send(st, &payload) != NGX_OK) {
             goto err;
+        }
+
+        if (ngx_nacos_grpc_config_change_notified(st->conn, val) != NGX_OK) {
+            ngx_log_error(NGX_LOG_WARN, nacos_config.nmcf->error_log, 0,
+                          "ConfigChangeNotifyRequest has not processed");
         }
     }
 
@@ -391,7 +387,7 @@ static ngx_int_t ngx_nacos_grpc_subscribe_configs(
     ngx_int_t rc;
     ngx_str_t tmp;
     ngx_nacos_main_conf_t *ncf;
-    u_char tmp_buf[128];
+    u_char tmp_buf[NGX_NACOS_MD5_LEN];
 
     ngx_nacos_payload_t payload = {
         .type = ConfigBatchListenRequest,
@@ -831,6 +827,13 @@ ngx_nacos_dynamic_key_t *ngx_nacos_dynamic_config_key_add(ngx_str_t *data_id,
         return NULL;
     }
 
+    k->md5.len = 0;
+    k->md5.data = ngx_palloc(pool, NGX_NACOS_MD5_LEN);
+    if (k->md5.data == NULL) {
+        ngx_destroy_pool(pool);
+        return NULL;
+    }
+
     k->node.str.data = data;
     k->node.str.len = key_len - 1;
 
@@ -994,6 +997,13 @@ static void ngx_nacos_config_visit_dynamic_key(
         prev->node.str.len != dck->node.str.len ||
         ngx_strncmp(prev->node.str.data, dck->node.str.data,
                     dck->node.str.len) != 0) {
+        return;
+    }
+
+    dck->md5.len = NGX_NACOS_MD5_LEN;
+    if (ngx_nacos_get_config_md5(nk, &dck->md5)!=NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, nacos_config.nmcf->error_log, 0,
+                      "nacos get dynamic config md5 failed");
         return;
     }
 

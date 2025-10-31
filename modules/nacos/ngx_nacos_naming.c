@@ -475,12 +475,6 @@ static ngx_int_t ngx_nacos_grpc_naming_bi_handler(ngx_nacos_grpc_stream_t *st,
             ngx_del_timer(&ngx_nacos_naming.subscribe_timer);
         }
 
-        payload.type = SetupAckResponse;
-        ngx_str_set(&payload.json_str, "{\"resultCode\":200}");
-        if (ngx_nacos_grpc_send(st, &payload) != NGX_OK) {
-            goto err;
-        }
-
         if (ngx_nacos_naming.support_ability_negotiation) {
             ngx_nacos_naming_subscribe_timer_handler(
                 &ngx_nacos_naming.subscribe_timer);
@@ -590,7 +584,7 @@ static ngx_int_t ngx_nacos_server_check_handler(ngx_nacos_grpc_stream_t *st,
     if (ngx_nacos_grpc_send(bi_st, &payload) != NGX_OK) {
         goto err;
     }
-    if (!YAJL_IS_TRUE(san)) {
+    if (!ngx_nacos_naming.support_ability_negotiation) {
         ngx_add_timer(&ngx_nacos_naming.subscribe_timer, 1000);
     }
     if (val != NULL) {
@@ -823,8 +817,7 @@ static ngx_int_t ngx_nacos_naming_subscribe_all_dynamic_keys(
     key_hash = ngx_nacos_naming.nmcf->key_hash;
 
     for (node = ngx_rbtree_min(ngx_nacos_naming.dynamic_keys.root, sentinel);
-         node;
-         node = ngx_rbtree_next(&ngx_nacos_naming.dynamic_keys, node)) {
+         node; node = ngx_rbtree_next(&ngx_nacos_naming.dynamic_keys, node)) {
         key = (ngx_nacos_dynamic_naming_key_t *) node;
         if (prev != NULL && prev->node.node.key == key->node.node.key &&
             prev->node.str.len == key->node.str.len &&
@@ -1057,9 +1050,10 @@ static void ngx_nacos_dynamic_naming_post_handler(ngx_event_t *ev) {
                               "nacos subscribe naming dynamic key %V failed",
                               &dnk->node.str);
             } else {
-                ngx_log_error(NGX_LOG_INFO, pool->log, 0,
-                              "nacos subscribe naming dynamic key %V successfully",
-                              &dnk->node.str);
+                ngx_log_error(
+                    NGX_LOG_INFO, pool->log, 0,
+                    "nacos subscribe naming dynamic key %V successfully",
+                    &dnk->node.str);
             }
         }
     }

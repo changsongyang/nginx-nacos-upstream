@@ -227,6 +227,12 @@ ngx_nacos_grpc_conn_t *ngx_nacos_open_grpc_conn(ngx_nacos_main_conf_t *conf,
         ngx_destroy_pool(pool);
         return NULL;
     }
+    gc->local_addr.len = NGX_SOCKADDR_STRLEN;
+    gc->local_addr.data = ngx_palloc(pool, NGX_SOCKADDR_STRLEN);
+    if (gc->local_addr.data == NULL) {
+        ngx_destroy_pool(pool);
+        return NULL;
+    }
 
     ngx_queue_init(&gc->all_streams);
     ngx_rbtree_init(&gc->st_tree, &gc->st_sentinel, ngx_rbtree_insert_value);
@@ -267,6 +273,12 @@ connect:
     gc->pool = pool;
     gc->settings.init_window_size = HTTP_V2_DEFAULT_WINDOW;
     gc->settings.max_frame_size = HTTP_V2_DEFAULT_FRAME_SIZE;
+
+    if (ngx_connection_local_sockaddr(c, &gc->local_addr, 1) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, c->log, 0,
+                      "http connection get local address error");
+        goto connect_failed;
+    }
 
     if (rc == NGX_AGAIN) {
         // connecting
@@ -336,7 +348,7 @@ ngx_nacos_grpc_stream_t *ngx_nacos_grpc_bi_request(ngx_nacos_grpc_conn_t *conn,
 ngx_int_t ngx_nacos_grpc_send(ngx_nacos_grpc_stream_t *st,
                               ngx_nacos_payload_t *p) {
     ngx_nacos_grpc_buf_t *bbuf;
-
+    ngx_int_t rc;
     ngx_nacos_grpc_payload_encode_t en;
 
     en.type = payload_type_mapping[p->type].type_name;
@@ -346,7 +358,11 @@ ngx_int_t ngx_nacos_grpc_send(ngx_nacos_grpc_stream_t *st,
         return NGX_ERROR;
     }
 
-    return ngx_nacos_grpc_send_buf(bbuf, 1);
+    rc = ngx_nacos_grpc_send_buf(bbuf, 1);
+    ngx_log_error(NGX_LOG_DEBUG, st->conn->conn->log, 0,
+                  "[%v]grpc send payload[%V](%d): %V", &st->conn->local_addr,
+                  &en.type, rc, &en.json);
+    return rc;
 }
 
 static void ngx_nacos_grpc_event_handler(ngx_event_t *ev) {
@@ -359,11 +375,17 @@ static void ngx_nacos_grpc_event_handler(ngx_event_t *ev) {
     if (ev == c->read) {
         rc = ngx_nacos_grpc_read_handler(gc, ev);
         if (rc == NGX_AGAIN && ngx_handle_read_event(ev, 0) != NGX_OK) {
+            ngx_log_error(NGX_LOG_ERR, c->log, 0,
+                          "nacos grpc connection handle read event error: %V",
+                          &gc->local_addr);
             rc = NGX_ERROR;
         }
     } else {
         rc = ngx_nacos_grpc_write_handler(gc, ev);
         if (rc == NGX_AGAIN && ngx_handle_write_event(ev, 0) != NGX_OK) {
+            ngx_log_error(NGX_LOG_ERR, c->log, 0,
+                          "nacos grpc connection handle write event error: %V",
+                          &gc->local_addr);
             rc = NGX_ERROR;
         }
     }
@@ -436,6 +458,7 @@ static ngx_int_t ngx_nacos_grpc_write_handler(ngx_nacos_grpc_conn_t *gc,
 static ngx_int_t ngx_nacos_grpc_read_handler(ngx_nacos_grpc_conn_t *gc,
                                              ngx_event_t *ev) {
     ssize_t rc;
+    size_t buf_len;
 
     if (gc->stat < prepare_grpc) {
         // write handler 处理
@@ -443,8 +466,13 @@ static ngx_int_t ngx_nacos_grpc_read_handler(ngx_nacos_grpc_conn_t *gc,
     }
 
     for (;;) {
-        rc = gc->conn->recv(gc->conn, gc->read_buf->last,
-                            (gc->read_buf->end - gc->read_buf->last));
+        buf_len = gc->read_buf->end - gc->read_buf->last;
+        if (buf_len == 0) {
+            ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                          "[bug][%V]read buf is empty", &gc->local_addr);
+            return NGX_ERROR;
+        }
+        rc = gc->conn->recv(gc->conn, gc->read_buf->last, buf_len);
         if (rc > 0) {
             gc->read_buf->last += rc;
             rc = ngx_nacos_grpc_parse_frame(gc);
@@ -453,6 +481,10 @@ static ngx_int_t ngx_nacos_grpc_read_handler(ngx_nacos_grpc_conn_t *gc,
             }
             continue;
         } else if (rc == 0) {
+            if (gc->conn->read->eof) {
+                ngx_log_error(NGX_LOG_DEBUG, gc->conn->log, 0,
+                              "nacos grpc connection[%V] EOF", &gc->local_addr);
+            }
             return NGX_DONE;
         } else if (rc == NGX_AGAIN) {
             return NGX_AGAIN;
@@ -463,6 +495,7 @@ static ngx_int_t ngx_nacos_grpc_read_handler(ngx_nacos_grpc_conn_t *gc,
 static ngx_int_t ngx_nacos_grpc_parse_frame(ngx_nacos_grpc_conn_t *gc) {
     ngx_buf_t *b;
     size_t len;
+    ssize_t required;
     ngx_int_t rc;
     u_char *pp, *lp;
 
@@ -484,7 +517,6 @@ static ngx_int_t ngx_nacos_grpc_parse_frame(ngx_nacos_grpc_conn_t *gc) {
                                   b->pos[8];
             gc->parse_stat = parse_frame_payload;
             b->pos += 9;
-            gc->frame_start = 1;
             len -= 9;
 
             if (gc->frame_type >
@@ -503,8 +535,7 @@ static ngx_int_t ngx_nacos_grpc_parse_frame(ngx_nacos_grpc_conn_t *gc) {
         }
 
         if (gc->parse_stat == parse_frame_payload) {
-            gc->frame_end = len >= gc->frame_size ? 1 : 0;
-            if (!gc->frame_end) {
+            if (len < gc->frame_size) {
                 break;
             }
 
@@ -518,20 +549,25 @@ static ngx_int_t ngx_nacos_grpc_parse_frame(ngx_nacos_grpc_conn_t *gc) {
             b->last = lp;
 
             if (rc != NGX_OK) {
+                ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                              "nacos http2 protocol error. [%V]frame handler "
+                              "error[%d] on type %uz of stream %uz",
+                              &gc->local_addr, rc, gc->frame_type,
+                              gc->frame_stream_id);
                 return rc;
             }
             gc->parse_stat = parse_frame_header;
         }
     }
 
-    len = b->last - b->pos;
-    if (len == 0) {
-        b->pos = b->last = b->start;
-    } else if (len > 0 && len * 4 < (size_t) (b->end - b->start) &&
-               (size_t) (b->end - b->pos) * 2 < (size_t) (b->end - b->start)) {
-        ngx_memcpy(b->start, b->pos, len);
+    required =
+        gc->parse_stat == parse_frame_header ? 9 : (ssize_t) gc->frame_size;
+    if (b->end - b->pos < required) {  // buffer not enough
+        if (len > 0) {
+            ngx_memmove(b->start, b->pos, len);
+        }
         b->pos = b->start;
-        b->last = b->pos + len;
+        b->last = b->start + len;
     }
     return NGX_AGAIN;
 }
@@ -836,6 +872,14 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
     tb = st->tmp_buf;
     buf = gc->read_buf;
 
+    if (gc->frame_flags & HTTP_V2_PADDED_FLAG) {
+        st->padding = buf->pos[0];
+        buf->pos++;
+        st->recv_win--;
+    } else {
+        st->padding = 0;
+    }
+
     for (;;) {
         p = buf->pos;
         len = buf->last - p;
@@ -843,20 +887,6 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
         if (len == 0) {
             rc = NGX_OK;
             break;
-        }
-
-        if (gc->frame_start) {
-            if (gc->frame_flags & HTTP_V2_PADDED_FLAG) {
-                if (len < 1) {
-                    return NGX_AGAIN;
-                }
-                st->padding = p[0];
-                ++p;
-                buf->pos = p;
-                st->recv_win--;
-            } else {
-                st->padding = 0;
-            }
         }
 
         if (st->parsing_state == parsing_prefix) {
@@ -930,14 +960,11 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
             p += len;
             buf->pos = p;
             st->recv_win -= len;
-            if (gc->frame_end && st->padding) {
+            if (st->padding) {
                 tb->last -= st->padding;
                 st->padding = 0;
             }
             len = tb->last - tb->pos;
-            if (st->proto_len > 300000) {
-                st->padding = 0;
-            }
             if (len == st->proto_len) {
                 proto_msg.len = len;
                 proto_msg.data = tb->pos;
@@ -955,21 +982,26 @@ static ngx_int_t ngx_nacos_grpc_parse_data_frame(ngx_nacos_grpc_conn_t *gc) {
         return NGX_ERROR;
     }
 
-    if (gc->frame_end) {
-        st->end_stream = gc->frame_flags & HTTP_V2_END_STREAM_FLAG ? 1 : 0;
-    }
+    st->end_stream = gc->frame_flags & HTTP_V2_END_STREAM_FLAG ? 1 : 0;
 
-    if (rc == NGX_OK && gc->frame_end && !st->end_stream &&
-        st->recv_win < 1024 * 1024) {
+    if (rc == NGX_OK && !st->end_stream && st->recv_win < 1024 * 1024) {
         if (ngx_nacos_grpc_send_win_update_frame(st, 512 * 1024 * 1024) ==
             NGX_ERROR) {
+            ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                          "[%V]after nacos server sent data frame "
+                          "send win update frame failed: %uz",
+                          &gc->local_addr, gc->frame_stream_id);
             return NGX_ERROR;
         }
     }
 
-    if (gc->frame_end && gc->m_stream->recv_win < 5 * 1024 * 1024) {
+    if (gc->m_stream->recv_win < 5 * 1024 * 1024) {
         if (ngx_nacos_grpc_send_win_update_frame(
                 gc->m_stream, 500 * 1024 * 1024) == NGX_ERROR) {
+            ngx_log_error(NGX_LOG_ERR, gc->conn->log, 0,
+                          "[%V]after nacos server sent data frame "
+                          "send win update main frame failed: %uz",
+                          &gc->local_addr, gc->frame_stream_id);
             return NGX_ERROR;
         }
     }
@@ -998,6 +1030,12 @@ static ngx_int_t ngx_nacos_grpc_parse_proto_msg(ngx_nacos_grpc_stream_t *st,
                         NGX_LOG_WARN, st->conn->conn->log, 0,
                         "receive nacos proto msg [%V]:[%d] when receiving: %V",
                         &de.type, rc, &de.out_json);
+                } else {
+                    ngx_log_error(NGX_LOG_DEBUG, st->conn->conn->log, 0,
+                                  "[%V]receive nacos proto msg [%V]:[%d] when "
+                                  "receiving: %V",
+                                  &st->conn->local_addr, &de.type, rc,
+                                  &de.out_json);
                 }
             } else {
                 ngx_memzero(&de.payload, sizeof(de.payload));
@@ -1018,6 +1056,9 @@ static ngx_int_t ngx_nacos_grpc_parse_proto_msg(ngx_nacos_grpc_stream_t *st,
         }
         return rc;
     }
+
+    ngx_log_error(NGX_LOG_ERR, st->conn->conn->log, 0,
+                  "nacos grpc send grpc-status not 200: %d", st->grpc_status);
     return NGX_ERROR;
 }
 
@@ -1119,15 +1160,14 @@ static ngx_int_t ngx_nacos_grpc_parse_header_frame(ngx_nacos_grpc_conn_t *gc) {
         b->pos += len;
 
         if (gc->frame_type == HTTP_V2_HEADERS_FRAME) {
-            if (st->padding && gc->frame_end) {
+            if (st->padding) {
                 // remove padding
                 tb->last -= st->padding;
                 st->padding = 0;
             }
         }
 
-        if (gc->frame_end &&
-            (gc->frame_flags & HTTP_V2_END_HEADERS_FLAG) != 0) {
+        if ((gc->frame_flags & HTTP_V2_END_HEADERS_FLAG) != 0) {
             st->end_header = 1;
             st->parsing_state = p_end_header;
             goto parse_header;
@@ -1528,9 +1568,6 @@ static ngx_int_t ngx_nacos_grpc_parse_ping_frame(ngx_nacos_grpc_conn_t *gc) {
         return NGX_ERROR;
     }
 
-    if (!gc->frame_end) {
-        return NGX_AGAIN;
-    }
     p = gc->read_buf->pos;
     gc->read_buf->pos = p + 8;
     data = ((uint64_t) p[0] << 56) | ((uint64_t) p[1] << 48) |
@@ -1572,9 +1609,6 @@ static ngx_int_t ngx_nacos_grpc_parse_goaway_frame(ngx_nacos_grpc_conn_t *gc) {
     u_char *p;
     ngx_uint_t last_st_id, err_code;
     ngx_str_t err_msg, *err_name;
-    if (!gc->frame_end) {
-        return NGX_AGAIN;
-    }
 
     p = gc->read_buf->pos;
 
@@ -2055,6 +2089,9 @@ static ngx_int_t ngx_nacos_grpc_send_win_update_frame(
     if (rc == NGX_OK) {
         st->recv_win += win_update;
     }
+    ngx_log_error(NGX_LOG_DEBUG, st->conn->conn->log, 0,
+                  "[%V] send window update frame %ud", &st->conn->local_addr,
+                  st->stream_id);
     return rc;
 }
 
