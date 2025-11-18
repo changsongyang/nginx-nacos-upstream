@@ -765,6 +765,8 @@ ngx_nacos_key_t *ngx_nacos_hash_find_key(ngx_hash_t *key_hash, u_char *k) {
     u_char *p, c;
     ngx_flag_t valid;
     ngx_uint_t hash;
+    size_t len;
+    static u_char lc_buf[1024];
 
     valid = 0;
     hash = 0;
@@ -772,13 +774,18 @@ ngx_nacos_key_t *ngx_nacos_hash_find_key(ngx_hash_t *key_hash, u_char *k) {
         if (c == '@' && *(p + 1) == '@') {
             valid = 1;
         }
-        c = ngx_tolower(c);
         hash = ngx_hash(hash, c);
     }
     if (!valid) {
         return NULL;
     }
 
+    len = p - k;
+    if (len > sizeof(lc_buf) - 1) {
+        return NULL;
+    }
+    ngx_hash_strlow(lc_buf, k, len);
+    lc_buf[len] = '\0';
     return ngx_hash_find(key_hash, hash, (u_char *) k, p - k);
 }
 
