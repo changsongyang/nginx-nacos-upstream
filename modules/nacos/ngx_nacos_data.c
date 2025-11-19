@@ -786,7 +786,7 @@ ngx_nacos_key_t *ngx_nacos_hash_find_key(ngx_hash_t *key_hash, u_char *k) {
     }
     ngx_hash_strlow(lc_buf, k, len);
     lc_buf[len] = '\0';
-    return ngx_hash_find(key_hash, hash, (u_char *) k, p - k);
+    return ngx_hash_find(key_hash, hash, lc_buf, len);
 }
 
 ngx_int_t ngx_nacos_get_config_md5(ngx_nacos_key_t *key, ngx_str_t *buf) {
