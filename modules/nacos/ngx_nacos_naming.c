@@ -78,10 +78,13 @@ static void ngx_nacos_naming_health_handler(ngx_event_t *ev);
 
 ngx_int_t ngx_nacos_naming_init(ngx_nacos_main_conf_t *nmcf) {
     ngx_nacos_naming.nmcf = nmcf;
+    ngx_nacos_naming.reconnect_timer.log = nmcf->error_log;
     ngx_nacos_naming.reconnect_timer.handler =
         ngx_nacos_naming_reconnect_timer_handler;
+    ngx_nacos_naming.subscribe_timer.log = nmcf->error_log;
     ngx_nacos_naming.subscribe_timer.handler =
         ngx_nacos_naming_subscribe_timer_handler;
+    ngx_nacos_naming.health_timer.log = nmcf->error_log;
     ngx_nacos_naming.health_timer.handler = ngx_nacos_naming_health_handler;
 
 #ifdef NGX_HAVE_NACOS_DYNAMIC_KEY

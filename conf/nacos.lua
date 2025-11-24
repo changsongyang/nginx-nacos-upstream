@@ -11,8 +11,8 @@ local function project_handler(v)
 end
 
 local function project_list_handler(v)
-    nacos.log(1, "project_list_handler content_len=", #v.data .." md5= ", v.md5, "data_id", v.data_id, "group= ", v.group)
-    local project_list = cjson.decode(v.data)
+    nacos.log(1, "project_list_handler content_len=", #v.content .." md5= ", v.md5, "data_id", v.data_id, "group= ", v.group)
+    local project_list = cjson.decode(v.content)
 
      -- 取消订阅在 project_list 中不存在的项目
     local to_unsubscribe = {}

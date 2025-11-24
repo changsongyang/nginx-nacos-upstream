@@ -140,6 +140,7 @@ static ngx_int_t ngx_aux_nacos_proc_handler(ngx_cycle_t *cycle,
     }
 #endif
     aux_ctx.token_refresh_timer.handler = ngx_nacos_aux_refresh_token_handler;
+    aux_ctx.token_refresh_timer.log = ncf->error_log;
     if (ncf->access_token.len) {
         ngx_add_timer(&aux_ctx.token_refresh_timer, aux_ctx.token_expire_time);
     }
@@ -352,7 +353,7 @@ static void ngx_nacos_aux_login_http_read_handler(ngx_event_t *ev) {
 request_complete:
     ngx_log_debug1(NGX_LOG_DEBUG_CORE, c->log, 0,
                    "http connection read response successfully,status=%d",
-                   nc->parser.status);
+                   lc->parser.status);
     c->requests++;
 
     if (lc->parser.json_parser) {

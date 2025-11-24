@@ -94,6 +94,9 @@ static ngx_int_t ngx_nacos_grpc_send_config_query_request(
 
 ngx_int_t ngx_nacos_config_init(ngx_nacos_main_conf_t *nmcf) {
     nacos_config.nmcf = nmcf;
+    nacos_config.reconnect_timer.log = nmcf->error_log;
+    nacos_config.subscribe_timer.log = nmcf->error_log;
+    nacos_config.health_timer.log = nmcf->error_log;
 
 #ifdef NGX_HAVE_NACOS_DYNAMIC_KEY
     ngx_rbtree_init(&nacos_config.dynamic_keys,
@@ -820,6 +823,7 @@ ngx_nacos_dynamic_key_t *ngx_nacos_dynamic_config_key_add(ngx_str_t *data_id,
     k->key.pool = pool;
     k->event.data = k;
     k->event.handler = ngx_nacos_dynamic_config_post_handler;
+    k->event.log = nacos_config.nmcf->error_log;
 
     data = ngx_palloc(pool, key_len);
     if (data == NULL) {

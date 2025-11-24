@@ -34,7 +34,8 @@ cd ../..
   --http-proxy-temp-path=proxy_temp \
   --http-fastcgi-temp-path=fastcgi_temp \
   --http-uwsgi-temp-path=uwsgi_temp \
-  --http-scgi-temp-path=scgi_temp
+  --http-scgi-temp-path=scgi_temp \
+  --with-debug
 
 make -j8 && make install
 mkdir -p ../objs/logs

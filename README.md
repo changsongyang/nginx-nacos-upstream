@@ -2,6 +2,7 @@
 # NGNIX NACOS 模块（插件）
 
 nginx 订阅 nacos，实现 服务发现 和 配置 动态更新。 nacos 1.x 使用 udp 协议，nacos 2.x 使用 grpc 协议，本项目都支持
+- 贡献者指南请参见 [AGENTS.md](AGENTS.md)。
 - nginx 订阅 nacos 获取后端服务地址，不用在 upstream 中配置 ip 地址，后端服务发布下线自动更新。
 - nginx 订阅 nacos 获取配置，写入 nginx 标准变量。（配置功能，只支持 grpc 协议）。
 - nginx 自身作为服务，注册到 nacos。（只支持 grpc 协议）。
@@ -387,12 +388,12 @@ local function service_listener(data)
     --  {ip: "10.10.10.11", port: 8080, weight: 100, cluster: "DEFAULT"}] }
 end
 local unlisten_conf = nacos.listen_config("gateway.server.route.json", "pro", conf_listener)
--- unlisten_conf() can unlisten the conf listener.
+-- unlisten_conf() can unlisten the conf listener. unlisten_conf 函数 gc 也会取消订阅
 -- unlisten_conf.notified is number of times that the conf listener notified.
 -- unlisten_conf.data_id is the data_id of the conf, nlisten_conf.group is the group of the conf
 
 local unlisten_service = nacos.subscribe_service("gateway.server.route.json", "test", service_listener)
--- unlisten_service() can unlisten the service listener
+-- unlisten_service() can unlisten the service listener, unlisten_service 函数 gc 也会取消订阅
 -- unlisten_service.notified is number of times that the conf listener notified.
 -- unlisten_service.service_name is the service_name of the service, unlisten_service.group is the group of the conf
 
