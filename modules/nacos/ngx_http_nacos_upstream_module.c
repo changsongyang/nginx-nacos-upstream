@@ -313,7 +313,8 @@ static char *ngx_http_conf_nacos_use_cluster(ngx_conf_t *cf, ngx_command_t *cmd,
     return NGX_CONF_OK;
 }
 
-static u_char *ngx_http_nacos_log_handler(ngx_log_t *log, u_char *buf, size_t len) {
+static u_char *ngx_http_nacos_log_handler(ngx_log_t *log, u_char *buf,
+                                          size_t len) {
     ngx_http_nacos_peers_t *peers;
     u_char *p = buf;
     if (log->action) {
@@ -402,8 +403,7 @@ static ngx_int_t ngx_http_nacos_add_server(ngx_http_nacos_peers_t *peers,
         server->addrs = u.addrs;
         server->naddrs = u.naddrs;
         server->name = u.url;
-        server->weight =
-            (ngx_uint_t) (adr[i].weight / 0.01 * (double) nscf->weight);
+        server->weight = (ngx_uint_t) adr[i].weight * nscf->weight / 100;
         server->max_fails = nscf->max_fails;
         server->fail_timeout = nscf->fail_timeout;
     }

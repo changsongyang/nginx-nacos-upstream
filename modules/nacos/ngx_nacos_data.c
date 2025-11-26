@@ -509,8 +509,8 @@ static bool ngx_nacos_encode_hosts(pb_ostream_t *stream,
 
         instance.host.arg = &addr[i].host;
         instance.host.funcs.encode = ngx_nacos_data_pb_encode_str;
-        instance.port = addr->port;
-        instance.weight = addr->weight;
+        instance.port = addr[i].port;
+        instance.weight = addr[i].weight;
         instance.cluster.arg = &addr[i].cluster;
         instance.cluster.funcs.encode = ngx_nacos_data_pb_encode_str;
         if (!pb_encode_submessage(stream, Instance_fields, &instance)) {
